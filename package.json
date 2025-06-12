@@ -1,13 +1,35 @@
 {
-  "name": "@bron/intents-sdk",
-  "version": "1.0.0",
+  "name": "@bronlabs/intents-sdk",
+  "version": "1.0.1",
   "description": "SDK for Intents DeFi smart contracts",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist/**/*",
+    "abi/**/*",
+    "README.md"
+  ],
+  "keywords": [
+    "defi",
+    "blockchain",
+    "ethereum",
+    "intents",
+    "sdk",
+    "smart-contracts"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git@github.com:bronlabs-intents/intents-sdk.git"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "build": "npm run clean && tsc",
-    "clean": "rimraf dist"
+    "clean": "rimraf dist",
+    "prepublishOnly": "npm run build"
   },
   "dependencies": {
     "dotenv": "^16.5.0",
