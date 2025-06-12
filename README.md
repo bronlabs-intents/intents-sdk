@@ -1,11 +1,11 @@
-# @bron/intents-sdk
+# @bronlabs/intents-sdk
 
 TypeScript SDK for building Intents DeFi applications with order indexing, processing, and smart contract interactions.
 
 ## Installation
 
 ```bash
-npm install @bron/intents-sdk
+npm install @bronlabs/intents-sdk
 ```
 
 ## Core Components
@@ -15,7 +15,7 @@ npm install @bron/intents-sdk
 Monitors blockchain events and indexes order status changes.
 
 ```typescript
-import { OrderIndexer, IntentsConfig } from '@bron/intents-sdk';
+import { OrderIndexer, IntentsConfig } from '@bronlabs/intents-sdk';
 
 const config: IntentsConfig = {
   rpcUrl: 'https://your-rpc-url',
@@ -41,7 +41,7 @@ await indexer.start();
 Base class for implementing custom order processing logic.
 
 ```typescript
-import { OrderProcessor } from '@bron/intents-sdk';
+import { OrderProcessor } from '@bronlabs/intents-sdk';
 
 class CustomOrderProcessor extends OrderProcessor {
   async process(orderId: string, status: string): Promise<void> {
@@ -57,7 +57,7 @@ await processor.stop();
 ### Network Configuration
 
 ```typescript
-import { NetworkConfig, IntentsConfig } from '@bron/intents-sdk';
+import { NetworkConfig, IntentsConfig } from '@bronlabs/intents-sdk';
 
 const config: IntentsConfig = {
   rpcUrl: 'https://mainnet.infura.io/v3/your-key',
