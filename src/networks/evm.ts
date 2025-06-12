@@ -67,8 +67,14 @@ export class EvmNetwork implements Network {
 
       const { result } = await response.json();
 
-      if (!result) {
-        return undefined;
+      if (!result || result.status == "0x0") {
+        log.info(`Transaction ${txHash} failed`);
+        return {
+          to: "",
+          token: "",
+          amount: BigNumber.from(0),
+          confirmed: true,
+        };
       }
 
       const { to, value, blockNumber } = result;
@@ -96,8 +102,14 @@ export class EvmNetwork implements Network {
 
     const { result } = await response.json();
 
-    if (!result) {
-      return undefined;
+    if (!result || result.status == "0x0") {
+      log.info(`Transaction ${txHash} failed`);
+      return {
+        to: "",
+        token: "",
+        amount: BigNumber.from(0),
+        confirmed: true,
+      };
     }
 
     const receipt = result as EthTransactionReceipt;
