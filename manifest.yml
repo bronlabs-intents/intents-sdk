@@ -1,0 +1,11 @@
+info:
+  name: intents-sdk
+  version: "1.0"
+  category: intents
+
+include:
+  - file: /etc/serve/include.d/library.yml
+
+build:
+  - node:
+      node: npm install && npm run build

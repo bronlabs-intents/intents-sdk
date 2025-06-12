@@ -1,0 +1,499 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_oracle",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_solverRegister",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [],
+    "name": "BC_INVALID_CALLER",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "BC_INVALID_ORDER_STATUS",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "BC_INVALID_PARAMS",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "BC_NOT_ENOUGH_OPERATION_AMOUNT",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "BC_TIMEOUT",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "orderId",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum IOrderEngine.OrderStatus",
+        "name": "status",
+        "type": "uint8"
+      }
+    ],
+    "name": "OrderStatusChanged",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "MAX_ACTION_DURATION",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "components": [
+          {
+            "internalType": "string",
+            "name": "orderId",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "baseNetworkId",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "baseTokenAddress",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "quoteNetworkId",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "quoteTokenAddress",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "recipientAddress",
+            "type": "string"
+          },
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseTokenPriceToUsd_e4",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "startPrice_e18",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "endPrice_e18",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "auctionDuration",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct IOrderEngine.InitOrderParams",
+        "name": "_initOrderParams",
+        "type": "tuple"
+      }
+    ],
+    "name": "createOrder",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      }
+    ],
+    "name": "executeSolverTimeout",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      }
+    ],
+    "name": "executeUserTimeout",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      }
+    ],
+    "name": "getRecipientAddressOnBaseChain",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      }
+    ],
+    "name": "getRecipientAddressOnQuoteChain",
+    "outputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      }
+    ],
+    "name": "liquidateOrder",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "oracle",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "name": "orders",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "user",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "solver",
+        "type": "address"
+      },
+      {
+        "components": [
+          {
+            "internalType": "string",
+            "name": "networkId",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "recipientAddress",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "userTxHash",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "tokenAddress",
+            "type": "string"
+          }
+        ],
+        "internalType": "struct IOrderEngine.BaseParams",
+        "name": "baseParams",
+        "type": "tuple"
+      },
+      {
+        "components": [
+          {
+            "internalType": "string",
+            "name": "networkId",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "recipientAddress",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "solverTxHash",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "tokenAddress",
+            "type": "string"
+          }
+        ],
+        "internalType": "struct IOrderEngine.QuoteParams",
+        "name": "quoteParams",
+        "type": "tuple"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "startPrice_e18",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "endPrice_e18",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "auctionDuration",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct IOrderEngine.AuctionParams",
+        "name": "auctionParams",
+        "type": "tuple"
+      },
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "amount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "price_e18",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "baseTokenPriceToUsd_e4",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "liquidationPrice",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct IOrderEngine.PricingParams",
+        "name": "pricingParams",
+        "type": "tuple"
+      },
+      {
+        "internalType": "uint64",
+        "name": "updatedAt",
+        "type": "uint64"
+      },
+      {
+        "internalType": "enum IOrderEngine.OrderStatus",
+        "name": "status",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_liquidationPrice",
+        "type": "uint256"
+      }
+    ],
+    "name": "prepareLiquidateOrder",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      },
+      {
+        "internalType": "bool",
+        "name": "_isConfirmed",
+        "type": "bool"
+      }
+    ],
+    "name": "setOracleConfirmSolverTx",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      },
+      {
+        "internalType": "bool",
+        "name": "_isConfirmed",
+        "type": "bool"
+      }
+    ],
+    "name": "setOracleConfirmUserTx",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "_solverTxHash",
+        "type": "string"
+      }
+    ],
+    "name": "setSolverTxOnQuoteChain",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "_userTxHash",
+        "type": "string"
+      }
+    ],
+    "name": "setUserTxOnBaseChain",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "_solverAddressOnBaseChain",
+        "type": "string"
+      }
+    ],
+    "name": "solverReact",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "solverRegister",
+    "outputs": [
+      {
+        "internalType": "contract ISolverRegister",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]
