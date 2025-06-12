@@ -8,8 +8,13 @@ export interface TransactionData {
 }
 
 export interface Network {
+  
   getDecimals(tokenAddress: string): Promise<number>;
+
   getTxData(txHash: string, tokenAddress: string): Promise<TransactionData | undefined>;
+
+  transfer(privateKey: string, to: string, value: BigNumber, tokenAddress: string): Promise<string>;
+
   readonly retryDelay: number;
 }
 

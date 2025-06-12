@@ -79,7 +79,7 @@ export class EvmNetwork implements Network {
         to: to,
         token: tokenAddress,
         amount: BigNumber.from(value),
-        confirmed: (currentBlock - blockNumber) >= this.confirmations,
+        confirmed: (currentBlock - blockNumber) >= this.confirmations
       };
     }
 
@@ -108,7 +108,23 @@ export class EvmNetwork implements Network {
       to: '0x' + receipt.logs[0].topics[2].slice(26),
       token: receipt.to,
       amount: BigNumber.from(receipt.logs[0].data),
-      confirmed: (currentBlock - receipt.blockNumber) >= this.confirmations,
+      confirmed: (currentBlock - receipt.blockNumber) >= this.confirmations
     };
+  }
+
+  async transfer(privateKey: string, to: string, value: BigNumber, tokenAddress: string): Promise<string> {
+    const signer = new ethers.Wallet(privateKey, this.provider);
+
+    if (tokenAddress === "0x0") {
+      const { hash } = await signer.sendTransaction({ to, value });
+      return hash;
+    }
+
+    const tokenContract = new ethers.Contract(tokenAddress, [
+      'function transfer(address to, uint256 amount) returns (bool)'
+    ], signer);
+
+    const { hash } = await tokenContract.transfer(to, value);
+    return hash;
   }
 }
