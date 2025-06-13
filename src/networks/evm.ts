@@ -19,7 +19,7 @@ export class EvmNetwork implements Network {
   private readonly nativeAssetDecimals: number = 18;
   readonly retryDelay: number = 5000;
 
-  constructor(rpcUrl: string, confirmations: number) {
+  constructor(rpcUrl: string, confirmations: number = 12) {
     this.rpcUrl = rpcUrl;
     this.provider = new ethers.providers.JsonRpcProvider(rpcUrl);
     this.confirmations = confirmations;

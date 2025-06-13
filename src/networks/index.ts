@@ -8,7 +8,7 @@ export interface TransactionData {
 }
 
 export interface Network {
-  
+
   getDecimals(tokenAddress: string): Promise<number>;
 
   getTxData(txHash: string, tokenAddress: string): Promise<TransactionData | undefined>;
@@ -19,3 +19,4 @@ export interface Network {
 }
 
 export * from './evm.js';
+export * from './trx.js';

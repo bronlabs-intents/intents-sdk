@@ -12,7 +12,7 @@ export class TrxNetwork implements Network {
   readonly retryDelay: number = 5000;
   private tronWeb: TronWeb;
 
-  constructor(rpcUrl: string, confirmations: number) {
+  constructor(rpcUrl: string, confirmations: number = 20) {
     this.rpcUrl = rpcUrl;
     this.confirmations = confirmations;
     this.tronWeb = new TronWeb({
@@ -135,17 +135,17 @@ export class TrxNetwork implements Network {
     this.tronWeb.setPrivateKey(privateKey);
 
     const { abi } = await this.tronWeb.trx.getContract(tokenAddress)
-    
+
     if (tokenAddress === "0x0") {
         // Send TRX (native token)
         const tx = await this.tronWeb.trx.sendTransaction(to, value.toNumber());
         return tx.txid;
     }
-    
+
     // Send USDT or other TRC20 tokens
-    const contract = await this.tronWeb.contract(abi.entrys, tokenAddress);
+    const contract = this.tronWeb.contract(abi.entrys, tokenAddress);
     const tx = await contract.methods.transfer(to, value.toNumber()).send();
     return tx.txid;
-    
+
   }
 }
