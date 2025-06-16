@@ -8,7 +8,7 @@ import { log } from "../utils.js";
 export class TrxNetwork implements Network {
   private readonly rpcUrl: string;
   private readonly confirmations: number;
-  private readonly nativeAssetDecimals: number = 18;
+  private readonly nativeAssetDecimals: number = 6;
   readonly retryDelay: number = 5000;
   private tronWeb: TronWeb;
 
