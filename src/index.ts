@@ -4,4 +4,4 @@ export * from './config.js';
 export * from './eventQueue.js';
 export * from './contracts.js';
 export * from './utils.js';
-export * from './networks/index.js';
+export { initNetworks } from './networks/index.js';

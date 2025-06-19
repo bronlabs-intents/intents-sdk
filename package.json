@@ -5,6 +5,16 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    },
+    "./networks": {
+      "import": "./dist/networks.js",
+      "types": "./dist/networks.d.ts"
+    }
+  },
   "files": [
     "dist/**/*",
     "abi/**/*",

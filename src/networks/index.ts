@@ -1,4 +1,9 @@
 import { BigNumber } from 'ethers';
+import { NetworkConfig } from '../config.js';
+
+import { EvmNetwork } from './evm.js';
+import { TrxNetwork } from './trx.js';
+import { SolNetwork } from './sol.js';
 
 export interface TransactionData {
   to: string;
@@ -18,5 +23,21 @@ export interface Network {
   readonly retryDelay: number;
 }
 
-export * from './evm.js';
-export * from './trx.js';
+const networkBuilders = {
+  "testETH": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 1),
+  "testTRX": (cf: NetworkConfig) => new TrxNetwork(cf.rpcUrl, 1),
+  "testSOL": (cf: NetworkConfig) => new SolNetwork(cf.rpcUrl, 1),
+
+  "ETH": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl),
+  "TRX": (cf: NetworkConfig) => new TrxNetwork(cf.rpcUrl),
+  "SOL": (cf: NetworkConfig) => new SolNetwork(cf.rpcUrl)
+}
+
+export const initNetworks = (configs: { [key: string]: NetworkConfig }, filter?: (cfg: NetworkConfig) => boolean) =>
+  Object.entries(networkBuilders).reduce((acc, [networkName, builder]) => {
+    if (configs[networkName]?.rpcUrl && (!filter || filter(configs[networkName]))) {
+      acc[networkName] = builder(configs[networkName])
+    }
+
+    return acc;
+  }, {} as Record<string, Network>)
