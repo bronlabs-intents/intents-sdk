@@ -110,7 +110,7 @@ export class TrxNetwork implements Network {
       }
     ).then((res) => res.json());
 
-    if (!response || response.result != "SUCCESS") {
+    if (!response || response.receipt.result != "SUCCESS") {
         log.info(`Transaction ${txHash} failed`);
         return {
             to: "",
@@ -120,10 +120,8 @@ export class TrxNetwork implements Network {
         };
     }
 
-    log.info(`Confirmations ${txHash}: ${currentBlock - response.blockNumber}`);
-
     return {
-      to: fromHex(response.log[0].topics[3].slice(24)),
+      to: fromHex("0x" + response.log[0].topics[2].toString().slice(24)),
       token: fromHex(response.contract_address),
       amount: BigNumber.from(parseInt(response.log[0].data, 16)),
       confirmed: currentBlock - response.blockNumber >= this.confirmations,
@@ -134,18 +132,18 @@ export class TrxNetwork implements Network {
     // Set private key
     this.tronWeb.setPrivateKey(privateKey);
 
-    const { abi } = await this.tronWeb.trx.getContract(tokenAddress)
-
     if (tokenAddress === "0x0") {
         // Send TRX (native token)
         const tx = await this.tronWeb.trx.sendTransaction(to, value.toNumber());
         return tx.txid;
     }
 
+    const { abi } = await this.tronWeb.trx.getContract(tokenAddress)
+
     // Send USDT or other TRC20 tokens
     const contract = this.tronWeb.contract(abi.entrys, tokenAddress);
     const tx = await contract.methods.transfer(to, value.toNumber()).send();
-    return tx.txid;
+    return tx;
 
   }
 }

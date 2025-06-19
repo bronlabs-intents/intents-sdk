@@ -20,3 +20,4 @@ export interface Network {
 
 export * from './evm.js';
 export * from './trx.js';
+export * from './sol.js';

@@ -1,9 +1,10 @@
 import { BigNumber } from "ethers";
-import { Connection, PublicKey, Transaction, SystemProgram, sendAndConfirmTransaction, Keypair } from "@solana/web3.js";
-import { TOKEN_PROGRAM_ID, ASSOCIATED_TOKEN_PROGRAM_ID, getAssociatedTokenAddress, createTransferInstruction } from "@solana/spl-token";
+import { Connection, PublicKey, Transaction, SystemProgram, Keypair } from "@solana/web3.js";
+import { createTransferInstruction, getOrCreateAssociatedTokenAccount } from "@solana/spl-token";
 
 import { Network, TransactionData } from "./index.js";
 import { log } from "../utils.js";
+import bs58 from "bs58";
 
 export class SolNetwork implements Network {
   private readonly rpcUrl: string;
@@ -15,7 +16,7 @@ export class SolNetwork implements Network {
   constructor(rpcUrl: string, confirmations: number = 20) {
     this.rpcUrl = rpcUrl;
     this.confirmations = confirmations;
-    this.connection = new Connection(rpcUrl, 'confirmed');
+    this.connection = new Connection(rpcUrl, { commitment: "confirmed" });
   }
 
   async getDecimals(tokenAddress: string): Promise<number> {
@@ -51,7 +52,7 @@ export class SolNetwork implements Network {
         method: "getLatestBlockhash",
         params: []
       })
-    }).then((res) => res.json()).then((res) => res.result.value.lastValidBlockHeight);
+    }).then((res) => res.json()).then((res) => res.result.context.slot);
 
     const response = await fetch(this.rpcUrl, {
       method: 'POST',
@@ -59,9 +60,13 @@ export class SolNetwork implements Network {
         id: 1,
         jsonrpc: "2.0",
         method: "getTransaction",
-        params: [txHash]
+        params: [txHash, {
+          "commitment": "confirmed",
+          "maxSupportedTransactionVersion": 0,
+          "encoding": "json"
+        }]
       })
-    }).then((res) => res.json());
+    }).then((res) => res.json()).then((res) => res.result);
 
     if (!response || response.meta?.err) {
       log.info(`Transaction ${txHash} failed`);
@@ -88,15 +93,16 @@ export class SolNetwork implements Network {
 
     // ERC20 token
     return {
-      to: response.meta.postTokenBalances[0].owner,
+      to: response.meta.postTokenBalances[1].owner,
       token: response.meta.postTokenBalances[0].mint,
-      amount: BigNumber.from(response.meta.postTokenBalances[0].uiTokenAmount.amount),
+      amount: BigNumber.from(response.meta.postTokenBalances[1].uiTokenAmount.amount - response.meta.preTokenBalances[1].uiTokenAmount.amount),
       confirmed: currentBlock - blockNumber >= this.confirmations,
     };
   }
 
   async transfer(privateKey: string, to: string, value: BigNumber, tokenAddress: string): Promise<string> {
-    const keypair = Keypair.fromSecretKey(Buffer.from(privateKey, 'hex'));
+    
+    const keypair = this.base58ToKeypair(privateKey);
     const toPubkey = new PublicKey(to);
 
     if (tokenAddress === "0x0") {
@@ -108,47 +114,55 @@ export class SolNetwork implements Network {
           lamports: value.toNumber(),
         })
       );
+      transaction.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash
 
-      const signature = await sendAndConfirmTransaction(
-        this.connection,
+      const signature = await this.connection.sendTransaction(
         transaction,
         [keypair]
       );
+
       return signature;
     }
 
-    // Send SPL tokens
-    const mint = new PublicKey(tokenAddress);
-    const fromTokenAccount = await getAssociatedTokenAddress(
-      mint,
+    const senderTokenAccount = await getOrCreateAssociatedTokenAccount(
+      this.connection,
+      keypair,
+      new PublicKey(tokenAddress),
       keypair.publicKey,
-      false,
-      TOKEN_PROGRAM_ID,
-      ASSOCIATED_TOKEN_PROGRAM_ID
     );
-    
-    const toTokenAccount = await getAssociatedTokenAddress(
-      mint,
-      toPubkey,
-      false,
-      TOKEN_PROGRAM_ID,
-      ASSOCIATED_TOKEN_PROGRAM_ID
+
+    const receiverTokenAccount = await getOrCreateAssociatedTokenAccount(
+      this.connection,
+      keypair,
+      new PublicKey(tokenAddress),
+      new PublicKey(to),
+      true, // Allow creating a token account for the receiver if it doesn't exist
     );
 
     const transaction = new Transaction().add(
       createTransferInstruction(
-        fromTokenAccount,
-        toTokenAccount,
-        keypair.publicKey,
+        senderTokenAccount.address,
+        receiverTokenAccount.address,
+        keypair.publicKey, 
         value.toNumber()
       )
     );
+    transaction.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash
 
-    const signature = await sendAndConfirmTransaction(
-      this.connection,
+    const signature = await this.connection.sendTransaction(
       transaction,
       [keypair]
     );
+
     return signature;
+  }
+
+  private base58ToKeypair(base58PrivateKey: string): Keypair {
+    try {
+      const privateKeyBuffer = bs58.decode(base58PrivateKey);
+      return Keypair.fromSecretKey(privateKeyBuffer);
+    } catch (error) {
+      throw new Error("Invalid base58 private key.");
+    }
   }
 }
