@@ -2,6 +2,10 @@ export interface NetworkConfig {
   rpcUrl: string;
   walletAddress?: string
   walletPrivateKey?: string;
+  node?: string;
+  clientId?: string;
+  clientSecret?: string;
+  partyHint?: string;
 }
 
 export interface IntentsConfig {

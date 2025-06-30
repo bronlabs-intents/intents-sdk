@@ -40,6 +40,7 @@
     "build": "npm run clean && tsc"
   },
   "dependencies": {
+    "@noble/ed25519": "^1.7.1",
     "@solana/spl-token": "^0.3.11",
     "@solana/web3.js": "^1.87.6",
     "bs58": "^6.0.0",
