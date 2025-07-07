@@ -88,9 +88,7 @@ export class OrderIndexer {
 
     try {
 
-      console.log("startIndexingLoop123");
       const currentBlock = await this.provider.getBlockNumber();
-      console.log("startIndexingLoop456");
 
       if (!this.lastProcessedBlock) {
         this.lastProcessedBlock = currentBlock - this.config.startBlockOffset;

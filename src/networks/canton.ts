@@ -3,6 +3,8 @@ import { BigNumber, ethers } from 'ethers';
 import { Network, TransactionData } from './index.js';
 import { log } from '../utils.js';
 import * as ed25519 from '@noble/ed25519';
+import { expRetry } from './utils.js';
+import { ppid } from 'process';
 
 export class CantonNetwork implements Network {
   private readonly rpcUrl: string;
@@ -10,19 +12,18 @@ export class CantonNetwork implements Network {
   private readonly nativeAssetDecimals: number = 18;
   readonly retryDelay: number = 5000;
   private readonly nativeAssetAddress: string = "00b5aad80a523ce3ca2e1e3c7b622df84efd37c5cfd00f112a64a4c48b27ad1062ca101220409710acc9bdb03ac71876b747c090d00270891ad9836ed60a6e4b8b41d8dfae";
-  private accessToken: string;
-  private accessTokenExpiresAt: Date;
+  private accessToken?: string;
+  private accessTokenExpiresAt: Date = new Date(0);
   private readonly clientId: string;
   private readonly clientSecret: string;
-  private readonly partyHint: string;
+  private readonly address: string;
 
-  constructor(rpcUrl: string, node: string, clientId: string, clientSecret: string, partyHint: string) {
+  constructor(rpcUrl: string, node: string, clientId: string, clientSecret: string, address: string) {
     this.rpcUrl = rpcUrl;
     this.node = node;
     this.clientId = clientId;
     this.clientSecret = clientSecret;
-    this.partyHint = partyHint;
-    this.accessTokenExpiresAt = new Date(0);
+    this.address = address;
   }
 
   async getDecimals(tokenAddress: string): Promise<number> {
@@ -40,9 +41,9 @@ export class CantonNetwork implements Network {
       throw new Error(`Couldnt get Canton tx data for ${txHash}`);
     }
 
-    const fetchedEvent = result.events_by_id.find((event: any) => event.event_type === "exercised_event" && event.choice === "AmuletRules_Transfer");
-    const to = fetchedEvent.choice_argument.transfer.outputs[0].receiver;
-    const amount = fetchedEvent.choice_argument.transfer.outputs[0].amount;
+    const fetchedEvent = result.json.events_by_id[`${txHash}:0`];
+    const to = fetchedEvent.choice_argument.receiver;
+    const amount = fetchedEvent.choice_argument.amount.split('.')[0];
 
     // Native token - Canton
     if (tokenAddress === '0x0') {
@@ -60,12 +61,8 @@ export class CantonNetwork implements Network {
 
   async transfer(privateKey: string, to: string, value: BigNumber, tokenAddress: string): Promise<string> {
 
-    if (this.partyHint === "" || this.node === "" || this.clientId === "" || this.clientSecret === "") {
+    if (this.node === "" || this.clientId === "" || this.clientSecret === "") {
       throw new Error("Canton network config is not set");
-    }
-
-    if (this.accessTokenExpiresAt < new Date()) {
-      await this.getAccessToken();
     }
 
     if (tokenAddress != '0x0') {
@@ -75,130 +72,118 @@ export class CantonNetwork implements Network {
     // Setup
     const publicKey = (await ed25519.utils.getExtendedPublicKey(privateKey)).point.toHex().toUpperCase();
 
-    const topology = await fetch(`${this.node}/v0/admin/external-party/topology/generate`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.accessToken}`
-      },
-      body: JSON.stringify({
-        "party_hint": this.partyHint,
-        "public_key": publicKey,
-      })
-    }).then((res) => res.json());
-
-    const submitTopology = await fetch(`${this.node}/v0/admin/external-party/topology/submit`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.accessToken}`
-      },
-      body: JSON.stringify({
-        "public_key": publicKey,
-        "signed_topology_txs": [
-          {
-            "topology_tx": topology.topology_txs[0].topology_tx,
-            "signed_hash": await ed25519.sign(topology.topology_txs[0].topology_tx, privateKey)
-          },
-          {
-            "topology_tx": topology.topology_txs[1].topology_tx,
-            "signed_hash": await ed25519.sign(topology.topology_txs[1].topology_tx, privateKey)
-          },
-          {
-            "topology_tx": topology.topology_txs[2].topology_tx,
-            "signed_hash": await ed25519.sign(topology.topology_txs[2].topology_tx, privateKey)
-          }
-        ]
-      })
-    }).then((res) => res.json());
-    const address = submitTopology.party_id
-
-    // const preApprovalDeploy = await fetch(`${this.node}/v0/admin/external-party/setup-proposal`, {
-    //   method: 'POST',
-    //   headers: {
-    //     'Authorization': `Bearer ${this.accessToken}`
-    //   },
-    //   body: JSON.stringify({
-    //      "user_party_id": address,
-    //   })
-    // }).then((res) => res.json());
-
-    // const prepareAccept = await fetch(`${this.node}/v0/admin/external-party/setup-proposal/prepare-accept`, {
-    //   method: 'POST',
-    //   headers: {
-    //     'Authorization': `Bearer ${this.accessToken}`
-    //   },
-    //   body: JSON.stringify({
-    //      "contract_id": preApprovalDeploy.contract_id,
-    //      "user_party_id": address
-    //   })
-    // }).then((res) => res.json());
-
-    // const submitAccept = await fetch(`${this.node}/v0/admin/external-party/setup-proposal/submit-accept`, {
-    //   method: 'POST',
-    //   headers: {
-    //     'Authorization': `Bearer ${this.accessToken}`
-    //   },
-    //   body: JSON.stringify({
-    //     "submission": {
-    //       "party_id": address,
-    //       "transaction": prepareAccept.transaction,
-    //       "signed_tx_hash": await ed25519.sign(prepareAccept.tx_hash, privateKey),
-    //       "public_key": publicKey
-    //     }
-    //   })
-    // }).then((res) => res.json());
-
     // Transfer
-    const nonce = await fetch(`${this.node}/v0/scan-proxy/transfer-command-counter/${address}`, {
-      headers: {
-        'Authorization': `Bearer ${this.accessToken}`
-      }
-    }).then((res) => res.json());
+    let nonce;
+    try {
+      const resp = await this.nodeRequest({
+        method: 'GET',
+        uri: `/v0/scan-proxy/transfer-command-counter/${this.address}`,
+        retry: false
+      });
 
-    const prepareSend = await fetch(`${this.node}/v0/admin/external-party/transfer-preapproval/prepare-send`, {
+      nonce = parseInt(resp.transfer_command_counter.contract.payload.nextNonce, 10);
+    } catch (e) {
+      if (e instanceof Error && e.message.includes('No TransferCommandCounter found for party')) {
+        nonce = 0;
+      } else {
+        throw e;
+      }
+    }
+
+    console.log("this.address ", this.address);
+
+    const prepareSend = await this.nodeRequest({
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.accessToken}`
-      },
-      body: JSON.stringify({
-        "sender_party_id": address,
+      uri: `/v0/admin/external-party/transfer-preapproval/prepare-send`,
+      body: {
+        "sender_party_id": this.address,
         "receiver_party_id": to,
         "amount": value.toString(),
         "expires_at": new Date(Date.now() + 86400000).toISOString(),
-        "nonce": nonce.nonce // nonce in LONG
-      })
-    }).then((res) => res.json());
+        "nonce": nonce
+      }
+    });
 
-    const submitSend = await fetch(`${this.node}/v0/admin/external-party/transfer-preapproval/submit-send`, {
+    const submitSend = await this.nodeRequest({
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${this.accessToken}`
-      },
-      body: JSON.stringify({
+      uri: `/v0/admin/external-party/transfer-preapproval/submit-send`,
+      body: {
         "submission": {
-          "party_id": address,
+          "party_id": this.address,
           "transaction": prepareSend.transaction,
-          "signed_tx_hash": await ed25519.sign(prepareSend.tx_hash, privateKey),
+          "signed_tx_hash": Buffer.from(await ed25519.sign(prepareSend.tx_hash, Buffer.from(privateKey, 'hex'))).toString('hex').toUpperCase(),
           "public_key": publicKey
         }
-      })
-    }).then((res) => res.json());
+      }
+    });
 
-    return submitSend.tx_hash;
+    console.log("submitSend ", submitSend);
+
+    return submitSend.update_id;
   }
 
-  private async getAccessToken(): Promise<void> {
-    const response = await fetch(`${this.node}/oauth/token`, {
+  private async getAccessToken(): Promise<string> {
+    if (this.accessToken && this.accessTokenExpiresAt > new Date(Date.now() + 30_000)) {
+      return this.accessToken;
+    }
+
+    const response = await fetch(`https://mainnet-canton-mpch.eu.auth0.com/oauth/token`, {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify({
-        "client_id": this.clientId,  
-        "client_secret": this.clientSecret,
-        "audience": "https://canton.network.global",
-        "grant_type": "client_credentials"
+        'client_id': this.clientId,
+        'client_secret': this.clientSecret,
+        'audience': 'https://canton.network.global',
+        'grant_type': 'client_credentials'
       })
     });
-    
-    const accessToken = await response.json();
-    this.accessToken = accessToken.access_token;
-    this.accessTokenExpiresAt = new Date(Date.now() + accessToken.expires_in * 1000);
+
+    if (!response.ok) {
+      throw new Error(`Failed to get access token: ${response.status} - ${await response.text()}`);
+    }
+
+    const data = await response.json();
+
+    this.accessToken = data.access_token;
+    this.accessTokenExpiresAt = new Date(Date.now() + data.expires_in * 1000);
+
+    return this.accessToken!;
+  }
+
+  private async nodeRequest({ method, uri, body = undefined, node = undefined, retry = true }: {
+    method: string,
+    uri: string,
+    body?: any,
+    node?: string;
+    retry?: boolean
+  }): Promise<any> {
+    return expRetry(async () => {
+      const start = Date.now()
+      const accessToken = await this.getAccessToken();
+
+      const resp = await fetch(`${node || this.node}${uri}`, {
+        method,
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        },
+        body: body ? JSON.stringify(body) : undefined
+      })
+
+      let msg = `${method} ${uri} - ${resp.status} ${resp.statusText} (${Date.now() - start}ms)`
+
+      if (!resp.ok) {
+        msg += `: ${await resp.text()}`
+        log.error(msg)
+
+        throw new Error(`Failed to ${msg}`);
+      }
+
+      log.debug(msg)
+
+      return await resp.json();
+    }, retry ? 3 : 0)
   }
 }
