@@ -28,11 +28,11 @@ const networkBuilders = {
   "testETH": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 1),
   "testTRX": (cf: NetworkConfig) => new TrxNetwork(cf.rpcUrl, 1),
   "testSOL": (cf: NetworkConfig) => new SolNetwork(cf.rpcUrl, 1),
-  "testCC": (cf: NetworkConfig) => new CantonNetwork(cf.rpcUrl, cf.node || "", cf.clientId || "", cf.clientSecret || "", cf.partyHint || ""),
-
+  
   "ETH": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl),
   "TRX": (cf: NetworkConfig) => new TrxNetwork(cf.rpcUrl),
-  "SOL": (cf: NetworkConfig) => new SolNetwork(cf.rpcUrl)
+  "SOL": (cf: NetworkConfig) => new SolNetwork(cf.rpcUrl),
+  "CC": (cf: NetworkConfig) => new CantonNetwork(cf.rpcUrl, cf.node || "", cf.clientId || "", cf.clientSecret || "", cf.walletAddress || "")
 }
 
 export const initNetworks = (configs: { [key: string]: NetworkConfig }, filter?: (cfg: NetworkConfig) => boolean) =>
