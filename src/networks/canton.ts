@@ -90,8 +90,6 @@ export class CantonNetwork implements Network {
       }
     }
 
-    console.log("this.address ", this.address);
-
     const prepareSend = await this.nodeRequest({
       method: 'POST',
       uri: `/v0/admin/external-party/transfer-preapproval/prepare-send`,
@@ -116,8 +114,6 @@ export class CantonNetwork implements Network {
         }
       }
     });
-
-    console.log("submitSend ", submitSend);
 
     return submitSend.update_id;
   }
