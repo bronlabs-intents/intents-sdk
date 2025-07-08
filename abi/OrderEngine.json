@@ -32,12 +32,22 @@
   },
   {
     "inputs": [],
+    "name": "BC_INVALID_PRICE",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "BC_NOT_ENOUGH_OPERATION_AMOUNT",
     "type": "error"
   },
   {
     "inputs": [],
     "name": "BC_TIMEOUT",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "BC_TX_ALREADY_USED",
     "type": "error"
   },
   {
@@ -123,11 +133,6 @@
           },
           {
             "internalType": "uint256",
-            "name": "endPrice_e18",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
             "name": "auctionDuration",
             "type": "uint256"
           }
@@ -172,44 +177,6 @@
     "name": "executeUserTimeout",
     "outputs": [],
     "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string",
-        "name": "_orderId",
-        "type": "string"
-      }
-    ],
-    "name": "getRecipientAddressOnBaseChain",
-    "outputs": [
-      {
-        "internalType": "string",
-        "name": "",
-        "type": "string"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string",
-        "name": "_orderId",
-        "type": "string"
-      }
-    ],
-    "name": "getRecipientAddressOnQuoteChain",
-    "outputs": [
-      {
-        "internalType": "string",
-        "name": "",
-        "type": "string"
-      }
-    ],
-    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -321,11 +288,6 @@
           },
           {
             "internalType": "uint256",
-            "name": "endPrice_e18",
-            "type": "uint256"
-          },
-          {
-            "internalType": "uint256",
             "name": "auctionDuration",
             "type": "uint256"
           }
@@ -364,6 +326,11 @@
       {
         "internalType": "uint64",
         "name": "updatedAt",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "createdAt",
         "type": "uint64"
       },
       {
@@ -476,6 +443,11 @@
         "internalType": "string",
         "name": "_solverAddressOnBaseChain",
         "type": "string"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_price_e18",
+        "type": "uint256"
       }
     ],
     "name": "solverReact",
@@ -491,6 +463,30 @@
         "internalType": "contract ISolverRegister",
         "name": "",
         "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "name": "usedTxHashes",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
       }
     ],
     "stateMutability": "view",
