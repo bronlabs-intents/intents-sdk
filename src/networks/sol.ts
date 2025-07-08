@@ -92,10 +92,35 @@ export class SolNetwork implements Network {
     }
 
     // ERC20 token
+    const postTokenBalances = response.meta.postTokenBalances.filter((balance: any) => balance.mint === tokenAddress)
+    const preTokenBalances = response.meta.preTokenBalances.filter((balance: any) => balance.mint === tokenAddress)
+
+    const senderAddress = (() => {
+      // Find the account that has less tokens in postTokenBalances than in preTokenBalances
+      for (const postBalance of postTokenBalances) {
+        const preBalance = preTokenBalances.find((balance: any) => 
+          balance.owner === postBalance.owner
+        );
+        
+        if (preBalance && BigInt(postBalance.uiTokenAmount.amount) < BigInt(preBalance.uiTokenAmount.amount)) {
+          return preBalance.owner;
+        }
+      }
+      throw new Error("No sender found");
+    })();
+
+    const postTokenBalanceOfReceiver = postTokenBalances.find((balance: any) => balance.owner != senderAddress)
+    const preTokenBalanceOfReceiver = preTokenBalances.find((balance: any) => balance.owner != senderAddress)
+
+    let preBalance = BigNumber.from(0)
+    if (preTokenBalanceOfReceiver?.uiTokenAmount.amount) {
+      preBalance = BigNumber.from(preTokenBalanceOfReceiver.uiTokenAmount.amount)
+    }
+
     return {
-      to: response.meta.postTokenBalances[1].owner,
-      token: response.meta.postTokenBalances[0].mint,
-      amount: BigNumber.from(response.meta.postTokenBalances[1].uiTokenAmount.amount - response.meta.preTokenBalances[1].uiTokenAmount.amount),
+      to: postTokenBalanceOfReceiver.owner,
+      token: postTokenBalanceOfReceiver.mint,
+      amount: BigNumber.from(postTokenBalanceOfReceiver.uiTokenAmount.amount - preBalance.toNumber()),
       confirmed: currentBlock - blockNumber >= this.confirmations,
     };
   }
