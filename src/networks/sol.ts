@@ -81,13 +81,15 @@ export class SolNetwork implements Network {
     const blockNumber = response.slot;
     log.info(`Confirmations ${txHash}: ${currentBlock - blockNumber}`);
 
+    console.log("response", response);
+
     // Native token - SOL
     if (tokenAddress === "0x0") {
       return {
-        to: response.transaction.message.accountKeys[1],
+        to: response.transaction.message.accountKeys[0],
         token: tokenAddress,
-        amount: BigNumber.from(response.meta.postBalances[1] - response.meta.preBalances[1]),
-        confirmed: currentBlock - blockNumber >= this.confirmations
+        amount: BigNumber.from(response.meta.postBalances[0] - response.meta.preBalances[0]),
+        confirmed: currentBlock - blockNumber >= this.confirmations,
       };
     }
 
