@@ -1,51 +1,63 @@
-import { BigNumber, ethers } from 'ethers';
+import { BigNumber } from 'ethers';
+import * as ed25519 from '@noble/ed25519';
+import Big from 'big.js';
 
 import { Network, TransactionData } from './index.js';
 import { log } from '../utils.js';
-import * as ed25519 from '@noble/ed25519';
 import { expRetry } from './utils.js';
-import { ppid } from 'process';
+
 
 export class CantonNetwork implements Network {
-  private readonly rpcUrl: string;
-  private readonly node: string;
-  private readonly nativeAssetDecimals: number = 18;
+  private readonly scanApiUrl: string;
+  private readonly validatorApiUrl: string;
+  private readonly nativeAssetDecimals: number = 10;
   readonly retryDelay: number = 5000;
-  private readonly nativeAssetAddress: string = "00b5aad80a523ce3ca2e1e3c7b622df84efd37c5cfd00f112a64a4c48b27ad1062ca101220409710acc9bdb03ac71876b747c090d00270891ad9836ed60a6e4b8b41d8dfae";
-  private accessToken?: string;
-  private accessTokenExpiresAt: Date = new Date(0);
-  private readonly clientId: string;
-  private readonly clientSecret: string;
-  private readonly address: string;
 
-  constructor(rpcUrl: string, node: string, clientId: string, clientSecret: string, address: string) {
-    this.rpcUrl = rpcUrl;
-    this.node = node;
+  private readonly clientId?: string;
+  private readonly clientSecret?: string;
+  private readonly senderPartyId?: string;
+
+  private accessToken?: string;
+  private accessTokenExpiresAt: number = 0;
+
+  constructor(validatorApiUrl: string, scanApiUrl?: string, clientId?: string, clientSecret?: string, senderPartyId?: string) {
+    this.validatorApiUrl = validatorApiUrl;
+    this.scanApiUrl = scanApiUrl || validatorApiUrl;
+
     this.clientId = clientId;
     this.clientSecret = clientSecret;
-    this.address = address;
+
+    this.senderPartyId = senderPartyId;
   }
 
   async getDecimals(tokenAddress: string): Promise<number> {
     if (tokenAddress === '0x0') {
       return this.nativeAssetDecimals;
     }
+
     throw new Error("Canton does not support tokens");
   }
 
   async getTxData(txHash: string, tokenAddress: string): Promise<TransactionData | undefined> {
+    const result = await fetch(`${this.scanApiUrl}/v2/updates/${txHash}`);
 
-    const result = await fetch(`${this.rpcUrl}/api/update/${txHash}`).then((res) => res.json());
-
-    if (!result || result.error) {
-      throw new Error(`Couldnt get Canton tx data for ${txHash}`);
+    if (!result.ok) {
+      throw new Error(`Couldn't get Canton tx data for ${txHash}: ${result.status} ${result.statusText}`);
     }
 
-    const fetchedEvent = result.json.events_by_id[`${txHash}:0`];
-    const to = fetchedEvent.choice_argument.receiver;
-    const amount = fetchedEvent.choice_argument.amount.split('.')[0];
+    const json = await result.json();
 
-    // Native token - Canton
+    if (!json || json.error) {
+      throw new Error(`Couldn't get Canton tx data for ${txHash}: ${json?.error || 'unknown error'}`);
+    }
+
+    const fetchedEvent = json.events_by_id[`${txHash}:0`];
+    const to = fetchedEvent.choice_argument.receiver;
+
+    const amount = new Big(fetchedEvent.choice_argument.amount)
+      .mul(Big(10).pow(this.nativeAssetDecimals))
+      .toNumber();
+
     if (tokenAddress === '0x0') {
       return {
         to: to,
@@ -55,29 +67,21 @@ export class CantonNetwork implements Network {
       };
     }
 
-    // ERC20 token
     throw new Error("Canton does not support tokens");
   }
 
   async transfer(privateKey: string, to: string, value: BigNumber, tokenAddress: string): Promise<string> {
-
-    if (this.node === "" || this.clientId === "" || this.clientSecret === "") {
-      throw new Error("Canton network config is not set");
-    }
-
     if (tokenAddress != '0x0') {
       throw new Error("Canton does not support tokens");
     }
 
-    // Setup
     const publicKey = (await ed25519.utils.getExtendedPublicKey(privateKey)).point.toHex().toUpperCase();
 
-    // Transfer
     let nonce;
     try {
       const resp = await this.nodeRequest({
         method: 'GET',
-        uri: `/v0/scan-proxy/transfer-command-counter/${this.address}`,
+        uri: `/v0/scan-proxy/transfer-command-counter/${this.senderPartyId}`,
         retry: false
       });
 
@@ -94,9 +98,9 @@ export class CantonNetwork implements Network {
       method: 'POST',
       uri: `/v0/admin/external-party/transfer-preapproval/prepare-send`,
       body: {
-        "sender_party_id": this.address,
+        "sender_party_id": this.senderPartyId,
         "receiver_party_id": to,
-        "amount": value.toString(),
+        "amount": new Big(value.toString()).div(new Big(10).pow(this.nativeAssetDecimals)).toString(),
         "expires_at": new Date(Date.now() + 86400000).toISOString(),
         "nonce": nonce
       }
@@ -107,7 +111,7 @@ export class CantonNetwork implements Network {
       uri: `/v0/admin/external-party/transfer-preapproval/submit-send`,
       body: {
         "submission": {
-          "party_id": this.address,
+          "party_id": this.senderPartyId,
           "transaction": prepareSend.transaction,
           "signed_tx_hash": Buffer.from(await ed25519.sign(prepareSend.tx_hash, Buffer.from(privateKey, 'hex'))).toString('hex').toUpperCase(),
           "public_key": publicKey
@@ -119,7 +123,7 @@ export class CantonNetwork implements Network {
   }
 
   private async getAccessToken(): Promise<string> {
-    if (this.accessToken && this.accessTokenExpiresAt > new Date(Date.now() + 30_000)) {
+    if (this.accessToken && this.accessTokenExpiresAt > Date.now() + 30_000) {
       return this.accessToken;
     }
 
@@ -143,7 +147,7 @@ export class CantonNetwork implements Network {
     const data = await response.json();
 
     this.accessToken = data.access_token;
-    this.accessTokenExpiresAt = new Date(Date.now() + data.expires_in * 1000);
+    this.accessTokenExpiresAt = Date.now() + (data.expires_in * 1000);
 
     return this.accessToken!;
   }
@@ -159,7 +163,7 @@ export class CantonNetwork implements Network {
       const start = Date.now()
       const accessToken = await this.getAccessToken();
 
-      const resp = await fetch(`${node || this.node}${uri}`, {
+      const resp = await fetch(`${node || this.validatorApiUrl}${uri}`, {
         method,
         headers: {
           'Authorization': `Bearer ${accessToken}`,
