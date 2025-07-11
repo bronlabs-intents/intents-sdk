@@ -77,6 +77,7 @@ export class OrderIndexer {
     // Wait for event queue to be processed
     while (!this.eventQueue.isEmpty()) {
       log.info(`Waiting for ${this.eventQueue.size()} events to be processed before stopping`);
+      await this.processEventQueue();
       await sleep(1000);
     }
 
@@ -129,7 +130,9 @@ export class OrderIndexer {
 
           this.lastProcessedBlock = toBlock;
 
-          await this.processEventQueue();
+          if (this.isRunning) {
+            await this.processEventQueue();
+          }
         }
       }
     } catch (error) {
@@ -147,7 +150,7 @@ export class OrderIndexer {
 
     log.info(`Processing event queue with ${this.eventQueue.size()} events`);
 
-    while (!this.eventQueue.isEmpty() && this.isRunning) {
+    while (!this.eventQueue.isEmpty()) {
       const event = this.eventQueue.peek();
 
       if (!event) continue;
