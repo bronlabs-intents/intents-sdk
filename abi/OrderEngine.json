@@ -103,11 +103,6 @@
       {
         "components": [
           {
-            "internalType": "address",
-            "name": "liquidationReceiver",
-            "type": "address"
-          },
-          {
             "internalType": "string",
             "name": "orderId",
             "type": "string"
@@ -134,12 +129,17 @@
           },
           {
             "internalType": "string",
-            "name": "recipientAddress",
+            "name": "userAddress",
             "type": "string"
           },
           {
             "internalType": "uint256",
-            "name": "amount",
+            "name": "baseAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "quoteAmount",
             "type": "uint256"
           },
           {
@@ -149,16 +149,21 @@
           },
           {
             "internalType": "uint256",
-            "name": "startPrice_e18",
+            "name": "maxPrice_e18",
             "type": "uint256"
           },
           {
             "internalType": "uint256",
             "name": "auctionDuration",
             "type": "uint256"
+          },
+          {
+            "internalType": "address",
+            "name": "liquidationReceiver",
+            "type": "address"
           }
         ],
-        "internalType": "struct IOrderEngine.InitOrderParams",
+        "internalType": "struct IOrderEngine.CreateOrderParams",
         "name": "_initOrderParams",
         "type": "tuple"
       }
@@ -213,13 +218,13 @@
       {
         "components": [
           {
-            "internalType": "address",
-            "name": "user",
-            "type": "address"
+            "internalType": "enum IOrderEngine.OrderStatus",
+            "name": "status",
+            "type": "uint8"
           },
           {
             "internalType": "address",
-            "name": "liquidationReceiver",
+            "name": "user",
             "type": "address"
           },
           {
@@ -236,17 +241,17 @@
               },
               {
                 "internalType": "string",
-                "name": "recipientAddress",
+                "name": "tokenAddress",
+                "type": "string"
+              },
+              {
+                "internalType": "string",
+                "name": "solverAddress",
                 "type": "string"
               },
               {
                 "internalType": "string",
                 "name": "userTxHash",
-                "type": "string"
-              },
-              {
-                "internalType": "string",
-                "name": "tokenAddress",
                 "type": "string"
               }
             ],
@@ -263,17 +268,17 @@
               },
               {
                 "internalType": "string",
-                "name": "recipientAddress",
+                "name": "tokenAddress",
+                "type": "string"
+              },
+              {
+                "internalType": "string",
+                "name": "userAddress",
                 "type": "string"
               },
               {
                 "internalType": "string",
                 "name": "solverTxHash",
-                "type": "string"
-              },
-              {
-                "internalType": "string",
-                "name": "tokenAddress",
                 "type": "string"
               }
             ],
@@ -285,24 +290,12 @@
             "components": [
               {
                 "internalType": "uint256",
-                "name": "startPrice_e18",
+                "name": "baseAmount",
                 "type": "uint256"
               },
               {
                 "internalType": "uint256",
-                "name": "auctionDuration",
-                "type": "uint256"
-              }
-            ],
-            "internalType": "struct IOrderEngine.AuctionParams",
-            "name": "auctionParams",
-            "type": "tuple"
-          },
-          {
-            "components": [
-              {
-                "internalType": "uint256",
-                "name": "amount",
+                "name": "quoteAmount",
                 "type": "uint256"
               },
               {
@@ -312,13 +305,23 @@
               },
               {
                 "internalType": "uint256",
-                "name": "baseTokenPriceToUsd_e4",
+                "name": "maxPrice_e18",
                 "type": "uint256"
               },
               {
                 "internalType": "uint256",
-                "name": "liquidationPrice",
+                "name": "auctionDuration",
                 "type": "uint256"
+              },
+              {
+                "internalType": "uint256",
+                "name": "baseTokenPriceToUsd_e4",
+                "type": "uint256"
+              },
+              {
+                "internalType": "address",
+                "name": "liquidationReceiver",
+                "type": "address"
               }
             ],
             "internalType": "struct IOrderEngine.PricingParams",
@@ -334,40 +337,11 @@
             "internalType": "uint64",
             "name": "createdAt",
             "type": "uint64"
-          },
-          {
-            "internalType": "enum IOrderEngine.OrderStatus",
-            "name": "status",
-            "type": "uint8"
           }
         ],
         "internalType": "struct IOrderEngine.Order",
         "name": "",
         "type": "tuple"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string",
-        "name": "_networkId",
-        "type": "string"
-      },
-      {
-        "internalType": "string",
-        "name": "_txHash",
-        "type": "string"
-      }
-    ],
-    "name": "getUsedTxHashes",
-    "outputs": [
-      {
-        "internalType": "bool",
-        "name": "",
-        "type": "bool"
       }
     ],
     "stateMutability": "view",
@@ -491,7 +465,7 @@
         "type": "string"
       }
     ],
-    "name": "setSolverTxOnQuoteChain",
+    "name": "setSolverTxOnQuoteNetwork",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -509,7 +483,7 @@
         "type": "string"
       }
     ],
-    "name": "setUserTxOnBaseChain",
+    "name": "setUserTxOnBaseNetwork",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
