@@ -74,11 +74,17 @@ export class OrderIndexer {
 
     this.isRunning = false;
 
-    // Wait for event queue to be processed
-    while (!this.eventQueue.isEmpty()) {
+    const maxWaitTime = 30000;
+    const startTime = Date.now();
+
+    while (!this.eventQueue.isEmpty() && (Date.now() - startTime) < maxWaitTime) {
       log.info(`Waiting for ${this.eventQueue.size()} events to be processed before stopping`);
       await this.processEventQueue();
       await sleep(1000);
+    }
+
+    if (!this.eventQueue.isEmpty()) {
+      log.warn(`Stopping indexer with ${this.eventQueue.size()} unprocessed events after timeout`);
     }
 
     log.info('Indexer stopped');
