@@ -1,17 +1,17 @@
 import { BigNumber } from "ethers";
-import { Connection, PublicKey, Transaction, SystemProgram, Keypair } from "@solana/web3.js";
+import { Connection, Transaction, SystemProgram, Keypair, PublicKey } from "@solana/web3.js";
 import { createTransferInstruction, getOrCreateAssociatedTokenAccount } from "@solana/spl-token";
+import bs58 from "bs58";
 
 import { Network, TransactionData } from "./index.js";
 import { log } from "../utils.js";
-import bs58 from "bs58";
 
 export class SolNetwork implements Network {
   private readonly rpcUrl: string;
   private readonly confirmations: number;
   private readonly nativeAssetDecimals: number = 9; // SOL has 9 decimals
   readonly retryDelay: number = 5000;
-  private connection: Connection;
+  private readonly connection: Connection;
 
   constructor(rpcUrl: string, confirmations: number = 20) {
     this.rpcUrl = rpcUrl;
@@ -30,7 +30,7 @@ export class SolNetwork implements Network {
         id: 1,
         jsonrpc: "2.0",
         method: "getAccountInfo",
-        params: [tokenAddress, {                         
+        params: [tokenAddress, {
           "encoding": "jsonParsed"
         }]
       })
@@ -74,7 +74,7 @@ export class SolNetwork implements Network {
         to: "",
         token: "",
         amount: BigNumber.from(0),
-        confirmed: true,
+        confirmed: true
       };
     }
 
@@ -100,10 +100,10 @@ export class SolNetwork implements Network {
     const senderAddress = (() => {
       // Find the account that has less tokens in postTokenBalances than in preTokenBalances
       for (const postBalance of postTokenBalances) {
-        const preBalance = preTokenBalances.find((balance: any) => 
+        const preBalance = preTokenBalances.find((balance: any) =>
           balance.owner === postBalance.owner
         );
-        
+
         if (preBalance && BigInt(postBalance.uiTokenAmount.amount) < BigInt(preBalance.uiTokenAmount.amount)) {
           return preBalance.owner;
         }
@@ -123,12 +123,12 @@ export class SolNetwork implements Network {
       to: postTokenBalanceOfReceiver.owner,
       token: postTokenBalanceOfReceiver.mint,
       amount: BigNumber.from(postTokenBalanceOfReceiver.uiTokenAmount.amount - preBalance.toNumber()),
-      confirmed: currentBlock - blockNumber >= this.confirmations,
+      confirmed: currentBlock - blockNumber >= this.confirmations
     };
   }
 
   async transfer(privateKey: string, to: string, value: BigNumber, tokenAddress: string): Promise<string> {
-    
+
     const keypair = this.base58ToKeypair(privateKey);
     const toPubkey = new PublicKey(to);
 
@@ -138,7 +138,7 @@ export class SolNetwork implements Network {
         SystemProgram.transfer({
           fromPubkey: keypair.publicKey,
           toPubkey: toPubkey,
-          lamports: value.toNumber(),
+          lamports: value.toNumber()
         })
       );
       transaction.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash
@@ -155,7 +155,7 @@ export class SolNetwork implements Network {
       this.connection,
       keypair,
       new PublicKey(tokenAddress),
-      keypair.publicKey,
+      keypair.publicKey
     );
 
     const receiverTokenAccount = await getOrCreateAssociatedTokenAccount(
@@ -163,14 +163,14 @@ export class SolNetwork implements Network {
       keypair,
       new PublicKey(tokenAddress),
       new PublicKey(to),
-      true, // Allow creating a token account for the receiver if it doesn't exist
+      true // Allow creating a token account for the receiver if it doesn't exist
     );
 
     const transaction = new Transaction().add(
       createTransferInstruction(
         senderTokenAccount.address,
         receiverTokenAccount.address,
-        keypair.publicKey, 
+        keypair.publicKey,
         value.toNumber()
       )
     );

@@ -2,10 +2,9 @@ export interface NetworkConfig {
   rpcUrl: string;
   walletAddress?: string
   walletPrivateKey?: string;
-  node?: string;
+  scanApiUrl?: string;
   clientId?: string;
   clientSecret?: string;
-  partyHint?: string;
 }
 
 export interface IntentsConfig {
@@ -18,7 +17,6 @@ export interface IntentsConfig {
   pollingInterval: number;
   maxRetries: number;
   retryDelay: number;
-
 
   networks: {
     [key: string]: NetworkConfig;
