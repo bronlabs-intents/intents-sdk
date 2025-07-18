@@ -1,4 +1,5 @@
 import { BigNumber } from 'ethers';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 import * as ed25519 from '@noble/ed25519';
 import Big from 'big.js';
 
@@ -17,12 +18,15 @@ export class CantonNetwork implements Network {
   private readonly clientSecret?: string;
   private readonly senderPartyId?: string;
 
+  private readonly proxyAgent: { agent?: HttpsProxyAgent<string> };
+
   private accessToken?: string;
   private accessTokenExpiresAt: number = 0;
 
   constructor(validatorApiUrl: string, scanApiUrl?: string, clientId?: string, clientSecret?: string, senderPartyId?: string) {
     this.validatorApiUrl = validatorApiUrl;
     this.scanApiUrl = scanApiUrl || validatorApiUrl;
+    this.proxyAgent = process.env.HTTP_PROXY ? { agent: new HttpsProxyAgent(process.env.HTTP_PROXY!) } : {};
 
     this.clientId = clientId;
     this.clientSecret = clientSecret;
@@ -39,7 +43,10 @@ export class CantonNetwork implements Network {
   }
 
   async getTxData(txHash: string, tokenAddress: string): Promise<TransactionData | undefined> {
-    const result = await fetch(`${this.scanApiUrl}/v2/updates/${txHash}`);
+    const result = await fetch(`${this.scanApiUrl}/v2/updates/${txHash}`, {
+      method: 'GET',
+      ...this.proxyAgent
+    });
 
     if (!result.ok) {
       throw new Error(`Couldn't get Canton tx data for ${txHash}: ${result.status} ${result.statusText}`);
@@ -137,7 +144,8 @@ export class CantonNetwork implements Network {
         'client_secret': this.clientSecret,
         'audience': 'https://canton.network.global',
         'grant_type': 'client_credentials'
-      })
+      }),
+      ...this.proxyAgent
     });
 
     if (!response.ok) {
@@ -169,7 +177,8 @@ export class CantonNetwork implements Network {
           'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         },
-        body: body ? JSON.stringify(body) : undefined
+        body: body ? JSON.stringify(body) : undefined,
+        ...this.proxyAgent
       })
 
       let msg = `${method} ${uri} - ${resp.status} ${resp.statusText} (${Date.now() - start}ms)`
