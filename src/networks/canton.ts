@@ -28,7 +28,7 @@ export class CantonNetwork implements Network {
     this.validatorApiUrl = validatorApiUrl;
     this.scanApiUrl = scanApiUrl || validatorApiUrl;
 
-    this.proxyAgent = process.env.HTTPS_PROXY ? new HttpsProxyAgent(process.env.HTTPS_PROXY, {
+    this.proxyAgent = process.env.HTTP_PROXY ? new HttpsProxyAgent(process.env.HTTP_PROXY, {
       rejectUnauthorized: false
     }) : undefined;
 
