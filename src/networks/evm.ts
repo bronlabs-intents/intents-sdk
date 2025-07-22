@@ -67,8 +67,13 @@ export class EvmNetwork implements Network {
 
       const { result } = await response.json();
 
-      if (!result || result.status == "0x0") {
-        log.info(`Transaction ${txHash} failed`);
+      if (!result) {
+        throw new Error("Transaction not found or response was empty")
+      }
+
+      if (result.status == "0x0") {
+        log.info(`Transaction ${txHash} failed: ${result}`);
+
         return {
           to: "",
           token: "",
@@ -102,8 +107,13 @@ export class EvmNetwork implements Network {
 
     const { result } = await response.json();
 
-    if (!result || result.status == "0x0") {
-      log.info(`Transaction ${txHash} failed`);
+    if (!result) {
+      throw new Error("Transaction not found or response was empty")
+    }
+
+    if (result.status == "0x0") {
+      log.info(`Transaction ${txHash} failed: ${result}`);
+
       return {
         to: "",
         token: "",
