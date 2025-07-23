@@ -1,5 +1,5 @@
 import { BigNumber } from "ethers";
-import { fromHex, toHex } from "tron-format-address";
+import { fromHex } from "tron-format-address";
 import { TronWeb } from "tronweb";
 
 import { Network, TransactionData } from "./index.js";
@@ -16,7 +16,7 @@ export class TrxNetwork implements Network {
     this.rpcUrl = rpcUrl;
     this.confirmations = confirmations;
     this.tronWeb = new TronWeb({
-      fullHost: rpcUrl,
+      fullHost: rpcUrl
     });
   }
 
@@ -26,15 +26,15 @@ export class TrxNetwork implements Network {
     }
 
     const response = await fetch(`${this.rpcUrl}/wallet/triggerconstantcontract`, {
-        method: "POST",
-        headers: {
-          accept: "application/json",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ owner_address: tokenAddress, contract_address: tokenAddress, function_selector: "decimals()", parameter: "", visible: true }),
-      }).then((res) => res.json()).then((res) => res.constant_result[0]);
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ owner_address: tokenAddress, contract_address: tokenAddress, function_selector: "decimals()", parameter: "", visible: true })
+    }).then((res) => res.json());
 
-    return parseInt(response, 16);
+    return parseInt(response.constant_result[0], 16);
   }
 
   async getTxData(
@@ -42,13 +42,13 @@ export class TrxNetwork implements Network {
     tokenAddress: string
   ): Promise<TransactionData | undefined> {
     const currentBlock = await fetch(`${this.rpcUrl}/wallet/getblockbylatestnum`, {
-        method: "POST",
-        headers: {
-          accept: "application/json",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ num: 1 }),
-      }).then((res) => res.json()).then((res) => res.block[0].block_header.raw_data.number);
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ num: 1 })
+    }).then((res) => res.json()).then((res) => res.block[0].block_header.raw_data.number);
 
     // Native token - TRX
     if (tokenAddress === "0x0") {
@@ -56,44 +56,45 @@ export class TrxNetwork implements Network {
         method: "POST",
         headers: {
           accept: "application/json",
-          "content-type": "application/json",
+          "content-type": "application/json"
         },
-        body: JSON.stringify({ value: txHash }),
+        body: JSON.stringify({ value: txHash })
       }).then((res) => res.json());
 
-      if (!response || response.ret[0].contractRet != "SUCCESS") {
-        log.info(`Transaction ${txHash} failed`);
-        return {
-          to: "",
-          token: "",
-          amount: BigNumber.from(0),
-          confirmed: true,
-        };
-      }
+      if (!response) return;
 
-      const to = fromHex(
-        response.raw_data.contract[0].parameter.value.to_address
-      );
-      const value = response.raw_data.contract[0].parameter.value.amount;
       const blockNumber = await fetch(
         `${this.rpcUrl}/wallet/gettransactioninfobyid`,
         {
           method: "POST",
           headers: {
             accept: "application/json",
-            "content-type": "application/json",
+            "content-type": "application/json"
           },
-          body: JSON.stringify({ value: txHash }),
+          body: JSON.stringify({ value: txHash })
         }
       ).then((res) => res.json()).then((res) => res.blockNumber);
+
+      const confirmed = currentBlock - blockNumber >= this.confirmations;
+
+      if (response.ret[0].contractRet != "SUCCESS") {
+        log.warn(`Transaction ${txHash} failed on blockchain: ${response}`);
+
+        return {
+          to: "",
+          token: "",
+          amount: BigNumber.from(0),
+          confirmed
+        };
+      }
 
       log.info(`Confirmations ${txHash}: ${currentBlock - blockNumber}`);
 
       return {
-        to: to,
+        to: fromHex(response.raw_data.contract[0].parameter.value.to_address),
         token: tokenAddress,
-        amount: BigNumber.from(value),
-        confirmed: currentBlock - blockNumber >= this.confirmations,
+        amount: BigNumber.from(response.raw_data.contract[0].parameter.value.amount),
+        confirmed
       };
     }
 
@@ -104,27 +105,32 @@ export class TrxNetwork implements Network {
         method: "POST",
         headers: {
           accept: "application/json",
-          "content-type": "application/json",
+          "content-type": "application/json"
         },
-        body: JSON.stringify({ value: txHash }),
+        body: JSON.stringify({ value: txHash })
       }
     ).then((res) => res.json());
 
-    if (!response || response.receipt.result != "SUCCESS") {
-        log.info(`Transaction ${txHash} failed`);
-        return {
-            to: "",
-            token: "",
-            amount: BigNumber.from(0),
-            confirmed: true,
-        };
+    if (!response) return;
+
+    const confirmed = currentBlock - response.blockNumber >= this.confirmations;
+
+    if (response.receipt.result != "SUCCESS") {
+      log.warn(`Transaction ${txHash} failed on blockchain: ${response}`);
+
+      return {
+        to: "",
+        token: "",
+        amount: BigNumber.from(0),
+        confirmed
+      };
     }
 
     return {
       to: fromHex("0x" + response.log[0].topics[2].toString().slice(24)),
       token: fromHex(response.contract_address),
       amount: BigNumber.from(parseInt(response.log[0].data, 16)),
-      confirmed: currentBlock - response.blockNumber >= this.confirmations,
+      confirmed
     };
   }
 
@@ -133,17 +139,15 @@ export class TrxNetwork implements Network {
     this.tronWeb.setPrivateKey(privateKey);
 
     if (tokenAddress === "0x0") {
-        // Send TRX (native token)
-        const tx = await this.tronWeb.trx.sendTransaction(to, value.toNumber());
-        return tx.txid;
+      // Send TRX (native token)
+      const tx = await this.tronWeb.trx.sendTransaction(to, value.toNumber());
+      return tx.txid;
     }
 
     const { abi } = await this.tronWeb.trx.getContract(tokenAddress)
 
     // Send USDT or other TRC20 tokens
     const contract = this.tronWeb.contract(abi.entrys, tokenAddress);
-    const tx = await contract.methods.transfer(to, value.toNumber()).send();
-    return tx;
-
+    return await contract.methods.transfer(to, value.toNumber()).send();
   }
 }

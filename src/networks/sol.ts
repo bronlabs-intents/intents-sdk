@@ -24,7 +24,7 @@ export class SolNetwork implements Network {
       return this.nativeAssetDecimals;
     }
 
-    const response = await fetch(this.rpcUrl, {
+    const { result } = await fetch(this.rpcUrl, {
       method: 'POST',
       body: JSON.stringify({
         id: 1,
@@ -34,9 +34,8 @@ export class SolNetwork implements Network {
           "encoding": "jsonParsed"
         }]
       })
-    });
+    }).then((res) => res.json());
 
-    const { result } = await response.json();
     return result.value.data.parsed.info.decimals;
   }
 
@@ -54,7 +53,7 @@ export class SolNetwork implements Network {
       })
     }).then((res) => res.json()).then((res) => res.result.context.slot);
 
-    const response = await fetch(this.rpcUrl, {
+    const { result } = await fetch(this.rpcUrl, {
       method: 'POST',
       body: JSON.stringify({
         id: 1,
@@ -66,43 +65,48 @@ export class SolNetwork implements Network {
           "encoding": "json"
         }]
       })
-    }).then((res) => res.json()).then((res) => res.result);
+    }).then((res) => res.json());
 
-    if (!response || response.meta?.err) {
-      log.info(`Transaction ${txHash} failed`);
+    if (!result) return;
+
+    const blockNumber = result.slot || currentBlock;
+    const confirmed = currentBlock - blockNumber >= this.confirmations
+
+    if (result.meta?.err) {
+      log.warn(`Transaction ${txHash} failed on blockchain: ${result}`);
+
       return {
         to: "",
         token: "",
         amount: BigNumber.from(0),
-        confirmed: true
+        confirmed
       };
     }
 
-    const blockNumber = response.slot;
     log.info(`Confirmations ${txHash}: ${currentBlock - blockNumber}`);
 
     // Native token - SOL
     if (tokenAddress === "0x0") {
-      if (BigNumber.from(response.meta.postBalances[0] - response.meta.preBalances[0]).gt(0)) {
+      if (BigNumber.from(result.meta.postBalances[0] - result.meta.preBalances[0]).gt(0)) {
         return {
-          to: response.transaction.message.accountKeys[0],
+          to: result.transaction.message.accountKeys[0],
           token: tokenAddress,
-          amount: BigNumber.from(response.meta.postBalances[0] - response.meta.preBalances[0]),
-          confirmed: currentBlock - blockNumber >= this.confirmations,
+          amount: BigNumber.from(result.meta.postBalances[0] - result.meta.preBalances[0]),
+          confirmed
         };
       } else {
         return {
-          to: response.transaction.message.accountKeys[1],
+          to: result.transaction.message.accountKeys[1],
           token: tokenAddress,
-          amount: BigNumber.from(response.meta.postBalances[1] - response.meta.preBalances[1]),
-          confirmed: currentBlock - blockNumber >= this.confirmations,
+          amount: BigNumber.from(result.meta.postBalances[1] - result.meta.preBalances[1]),
+          confirmed
         }
       }
     }
 
     // ERC20 token
-    const postTokenBalances = response.meta.postTokenBalances.filter((balance: any) => balance.mint === tokenAddress)
-    const preTokenBalances = response.meta.preTokenBalances.filter((balance: any) => balance.mint === tokenAddress)
+    const postTokenBalances = result.meta.postTokenBalances.filter((balance: any) => balance.mint === tokenAddress)
+    const preTokenBalances = result.meta.preTokenBalances.filter((balance: any) => balance.mint === tokenAddress)
 
     const senderAddress = (() => {
       // Find the account that has less tokens in postTokenBalances than in preTokenBalances
@@ -115,6 +119,7 @@ export class SolNetwork implements Network {
           return preBalance.owner;
         }
       }
+
       throw new Error("No sender found");
     })();
 
@@ -130,32 +135,29 @@ export class SolNetwork implements Network {
       to: postTokenBalanceOfReceiver.owner,
       token: postTokenBalanceOfReceiver.mint,
       amount: BigNumber.from(postTokenBalanceOfReceiver.uiTokenAmount.amount - preBalance.toNumber()),
-      confirmed: currentBlock - blockNumber >= this.confirmations
+      confirmed
     };
   }
 
   async transfer(privateKey: string, to: string, value: BigNumber, tokenAddress: string): Promise<string> {
-
     const keypair = this.base58ToKeypair(privateKey);
-    const toPubkey = new PublicKey(to);
 
     if (tokenAddress === "0x0") {
       // Send SOL (native token)
       const transaction = new Transaction().add(
         SystemProgram.transfer({
           fromPubkey: keypair.publicKey,
-          toPubkey: toPubkey,
+          toPubkey: new PublicKey(to),
           lamports: value.toNumber()
         })
       );
+
       transaction.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash
 
-      const signature = await this.connection.sendTransaction(
+      return await this.connection.sendTransaction(
         transaction,
         [keypair]
       );
-
-      return signature;
     }
 
     const senderTokenAccount = await getOrCreateAssociatedTokenAccount(
@@ -181,14 +183,13 @@ export class SolNetwork implements Network {
         value.toNumber()
       )
     );
+
     transaction.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash
 
-    const signature = await this.connection.sendTransaction(
+    return await this.connection.sendTransaction(
       transaction,
       [keypair]
     );
-
-    return signature;
   }
 
   private base58ToKeypair(base58PrivateKey: string): Keypair {

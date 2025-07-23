@@ -30,7 +30,7 @@ export class EvmNetwork implements Network {
       return this.nativeAssetDecimals;
     }
 
-    const response = await fetch(this.rpcUrl, {
+    const { result } = await fetch(this.rpcUrl, {
       method: 'POST',
       body: JSON.stringify({
         id: 1,
@@ -44,9 +44,8 @@ export class EvmNetwork implements Network {
           "latest"
         ]
       })
-    });
+    }).then((res) => res.json());
 
-    const { result } = await response.json();
     return parseInt(result, 16);
   }
 
@@ -68,17 +67,19 @@ export class EvmNetwork implements Network {
       const { result } = await response.json();
 
       if (!result) {
-        throw new Error("Transaction not found or response was empty")
+        return;
       }
 
-      if (result.status == "0x0") {
-        log.info(`Transaction ${txHash} failed: ${result}`);
+      const confirmed = (currentBlock - result.blockNumber) >= this.confirmations;
+
+      if (result.status != "0x1") {
+        log.warn(`Transaction ${txHash} failed on blockchain: ${result}`);
 
         return {
           to: "",
           token: "",
           amount: BigNumber.from(0),
-          confirmed: true
+          confirmed
         };
       }
 
@@ -90,7 +91,7 @@ export class EvmNetwork implements Network {
         to: to,
         token: tokenAddress,
         amount: BigNumber.from(value),
-        confirmed: (currentBlock - blockNumber) >= this.confirmations
+        confirmed
       };
     }
 
@@ -108,17 +109,19 @@ export class EvmNetwork implements Network {
     const { result } = await response.json();
 
     if (!result) {
-      throw new Error("Transaction not found or response was empty")
+      return;
     }
 
-    if (result.status == "0x0") {
-      log.info(`Transaction ${txHash} failed: ${result}`);
+    const confirmed = (currentBlock - result.blockNumber) >= this.confirmations;
+
+    if (result.status != "0x1") {
+      log.warn(`Transaction ${txHash} failed on blockchain: ${result}`);
 
       return {
         to: "",
         token: "",
         amount: BigNumber.from(0),
-        confirmed: true
+        confirmed
       };
     }
 
@@ -130,7 +133,7 @@ export class EvmNetwork implements Network {
       to: '0x' + receipt.logs[0].topics[2].slice(26),
       token: receipt.to,
       amount: BigNumber.from(receipt.logs[0].data),
-      confirmed: (currentBlock - receipt.blockNumber) >= this.confirmations
+      confirmed
     };
   }
 

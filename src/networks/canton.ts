@@ -117,7 +117,7 @@ export class CantonNetwork implements Network {
       }
     });
 
-    const submitSend = await this.nodeRequest({
+    const { update_id } = await this.nodeRequest({
       method: 'POST',
       uri: `/v0/admin/external-party/transfer-preapproval/submit-send`,
       body: {
@@ -130,7 +130,7 @@ export class CantonNetwork implements Network {
       }
     });
 
-    return submitSend.update_id;
+    return update_id;
   }
 
   private async getAccessToken(): Promise<string> {
