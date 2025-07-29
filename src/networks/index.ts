@@ -5,6 +5,7 @@ import { EvmNetwork } from './evm.js';
 import { TrxNetwork } from './trx.js';
 import { SolNetwork } from './sol.js';
 import { CantonNetwork } from './canton.js';
+import { BtcNetwork } from './btc.js';
 
 export interface TransactionData {
   to: string;
@@ -25,10 +26,13 @@ export interface Network {
 }
 
 const networkBuilders = {
+  "testBTC": (cf: NetworkConfig) => new BtcNetwork(cf.rpcUrl, 1),
   "testETH": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 1),
   "testTRX": (cf: NetworkConfig) => new TrxNetwork(cf.rpcUrl, 1),
   "testSOL": (cf: NetworkConfig) => new SolNetwork(cf.rpcUrl, 1),
+  "testCC": (cf: NetworkConfig) => new CantonNetwork(cf.rpcUrl, cf.scanApiUrl, cf.clientId, cf.clientSecret, cf.walletAddress),
 
+  "BTC": (cf: NetworkConfig) => new BtcNetwork(cf.rpcUrl, 2),
   "ETH": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 6),
   "TRX": (cf: NetworkConfig) => new TrxNetwork(cf.rpcUrl, 20),
   "SOL": (cf: NetworkConfig) => new SolNetwork(cf.rpcUrl, 20),
