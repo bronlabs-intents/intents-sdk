@@ -3,6 +3,7 @@ export interface NetworkConfig {
   walletAddress?: string
   walletPrivateKey?: string;
   scanApiUrl?: string;
+  authUrl?: string;
   clientId?: string;
   clientSecret?: string;
 }

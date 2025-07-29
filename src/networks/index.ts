@@ -30,13 +30,13 @@ const networkBuilders = {
   "testETH": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 1),
   "testTRX": (cf: NetworkConfig) => new TrxNetwork(cf.rpcUrl, 1),
   "testSOL": (cf: NetworkConfig) => new SolNetwork(cf.rpcUrl, 1),
-  "testCC": (cf: NetworkConfig) => new CantonNetwork(cf.rpcUrl, cf.scanApiUrl, cf.clientId, cf.clientSecret, cf.walletAddress),
+  "testCC": (cf: NetworkConfig) => new CantonNetwork(cf.rpcUrl, cf.scanApiUrl, cf.authUrl, cf.clientId, cf.clientSecret, cf.walletAddress),
 
   "BTC": (cf: NetworkConfig) => new BtcNetwork(cf.rpcUrl, 2),
   "ETH": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 6),
   "TRX": (cf: NetworkConfig) => new TrxNetwork(cf.rpcUrl, 20),
   "SOL": (cf: NetworkConfig) => new SolNetwork(cf.rpcUrl, 20),
-  "CC": (cf: NetworkConfig) => new CantonNetwork(cf.rpcUrl, cf.scanApiUrl, cf.clientId, cf.clientSecret, cf.walletAddress)
+  "CC": (cf: NetworkConfig) => new CantonNetwork(cf.rpcUrl, cf.scanApiUrl, cf.authUrl, cf.clientId, cf.clientSecret, cf.walletAddress)
 }
 
 export const initNetworks = (configs: { [key: string]: NetworkConfig }, filter?: (cfg: NetworkConfig) => boolean) =>

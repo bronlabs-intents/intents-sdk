@@ -22,6 +22,8 @@ export async function expRetry<T>(fn: () => Promise<T>, maxRetries: number = 3, 
       if (attempt === maxRetries) throw error;
 
       if (error instanceof Error && retryIf(error)) {
+        log.warn(`Retry attempt #${attempt + 1}: ${error.message}`);
+
         const delay = Math.pow(2, attempt) * 3000;
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;

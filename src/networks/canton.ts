@@ -12,6 +12,8 @@ import { expRetry } from './utils.js';
 export class CantonNetwork implements Network {
   private readonly scanApiUrl: string;
   private readonly validatorApiUrl: string;
+  private readonly authUrl: string;
+
   private readonly nativeAssetDecimals: number = 10;
   readonly retryDelay: number = 5000;
 
@@ -24,9 +26,10 @@ export class CantonNetwork implements Network {
   private accessToken?: string;
   private accessTokenExpiresAt: number = 0;
 
-  constructor(validatorApiUrl: string, scanApiUrl?: string, clientId?: string, clientSecret?: string, senderPartyId?: string) {
+  constructor(validatorApiUrl: string, scanApiUrl?: string, authUrl?: string, clientId?: string, clientSecret?: string, senderPartyId?: string) {
     this.validatorApiUrl = validatorApiUrl;
     this.scanApiUrl = scanApiUrl || validatorApiUrl;
+    this.authUrl = authUrl || 'mainnet-canton-mpch.eu.auth0.com';
 
     this.proxyAgent = process.env.HTTP_PROXY ? new HttpsProxyAgent(process.env.HTTP_PROXY, {
       rejectUnauthorized: false
@@ -47,7 +50,9 @@ export class CantonNetwork implements Network {
   }
 
   async getTxData(txHash: string, tokenAddress: string): Promise<TransactionData | undefined> {
-    const result = await fetch(`${this.scanApiUrl}/v2/updates/${txHash}`, {
+    const updateId = txHash.split(':')[0];
+
+    const result = await fetch(`${this.scanApiUrl}/v2/updates/${updateId}`, {
       method: 'GET',
       agent: this.proxyAgent
     });
@@ -62,7 +67,7 @@ export class CantonNetwork implements Network {
       throw new Error(`Couldn't get Canton tx data for ${txHash}: ${json?.error || 'unknown error'}`);
     }
 
-    const fetchedEvent = json.events_by_id[`${txHash}:0`];
+    const fetchedEvent = json.events_by_id[`${updateId}:0`];
     const to = fetchedEvent.choice_argument.receiver;
 
     const amount = new Big(fetchedEvent.choice_argument.amount)
@@ -130,7 +135,32 @@ export class CantonNetwork implements Network {
       }
     });
 
-    return update_id;
+    return expRetry(async () => {
+      log.info(`Waiting for transaction ${update_id} confirmation...`);
+
+      const result = await fetch(`${this.scanApiUrl}/v2/updates/${update_id}`);
+
+      if (!result.ok) {
+        throw new Error(`Couldn't get Canton tx data for ${update_id}: ${result.status} ${result.statusText}`);
+      }
+
+      const json = await result.json();
+
+      if (!json || json.error) {
+        throw new Error(`Couldn't get Canton tx data for ${update_id}: ${json?.error || 'unknown error'}`);
+      }
+
+      const event: any = Object.values(json.events_by_id)
+        .find((e: any) => e.event_type == 'exercised_event' && e.choice == 'ExternalPartyAmuletRules_CreateTransferCommand');
+
+      const transferCommandCid = event?.exercise_result?.transferCommandCid;
+
+      if (!transferCommandCid) {
+        throw new Error(`Couldn't find transfer command cid in Canton tx data for ${update_id}`);
+      }
+
+      return `${update_id}:${transferCommandCid}`;
+    }, 10);
   }
 
   private async getAccessToken(): Promise<string> {
@@ -138,7 +168,7 @@ export class CantonNetwork implements Network {
       return this.accessToken;
     }
 
-    const response = await fetch(`https://mainnet-canton-mpch.eu.auth0.com/oauth/token`, {
+    const response = await fetch(`https://${this.authUrl}/oauth/token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -152,7 +182,7 @@ export class CantonNetwork implements Network {
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to get access token: ${response.status} - ${await response.text()}`);
+      throw new Error(`Failed to get access token from https://${this.authUrl}/oauth/token: ${response.status} - ${await response.text()}`);
     }
 
     const data = await response.json();
@@ -193,7 +223,7 @@ export class CantonNetwork implements Network {
         throw new Error(`Failed to ${msg}`);
       }
 
-      log.debug(msg)
+      log.info(msg)
 
       return await resp.json();
     }, retry ? 3 : 0)
