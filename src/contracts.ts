@@ -34,12 +34,12 @@ interface QuoteParams {
 }
 
 interface PricingParams {
-  baseAmount: string;
-  quoteAmount: string;
-  price_e18: string;
-  maxPrice_e18: string;
-  auctionDuration: string;
-  baseTokenPriceToUsd_e4: string;
+  baseAmount: number;
+  quoteAmount: number;
+  price_e18: number;
+  maxPrice_e18: number;
+  auctionDuration: number;
+  baseTokenPriceToUsd_e4: number;
   liquidationReceiver: string;
 }
 
@@ -52,6 +52,10 @@ interface Order {
   pricingParams: PricingParams;
   updatedAt: number;
   createdAt: number;
+}
+
+interface NetworkParams {
+  gasLimit: number;
 }
 
 export interface OrderEngineContract extends ethers.Contract {
@@ -69,23 +73,23 @@ export interface OrderEngineContract extends ethers.Contract {
     maxPrice_e18: ethers.BigNumberish;
     auctionDuration: ethers.BigNumberish;
     liquidationReceiver: string;
-  }): Promise<ethers.ContractTransaction>;
+  }, networkParams?: NetworkParams): Promise<ethers.ContractTransaction>;
 
   getOrder(orderId: string): Promise<Order>;
 
-  solverReact(orderId: string, amount: ethers.BigNumberish, price: ethers.BigNumberish): Promise<ethers.ContractTransaction>;
+  solverReact(orderId: string, amount: ethers.BigNumberish, price: ethers.BigNumberish, params?: NetworkParams): Promise<ethers.ContractTransaction>;
 
-  setUserTxOnBaseNetwork(orderId: string, txHash: string): Promise<ethers.ContractTransaction>;
+  setUserTxOnBaseNetwork(orderId: string, txHash: string, params?: NetworkParams): Promise<ethers.ContractTransaction>;
 
-  setSolverTxOnQuoteNetwork(orderId: string, txHash: string): Promise<ethers.ContractTransaction>;
+  setSolverTxOnQuoteNetwork(orderId: string, txHash: string, params?: NetworkParams): Promise<ethers.ContractTransaction>;
 
-  setOracleConfirmUserTx(orderId: string): Promise<ethers.ContractTransaction>;
+  setOracleConfirmUserTx(orderId: string, params?: NetworkParams): Promise<ethers.ContractTransaction>;
 
-  setOracleConfirmSolverTx(orderId: string): Promise<ethers.ContractTransaction>;
+  setOracleConfirmSolverTx(orderId: string, params?: NetworkParams): Promise<ethers.ContractTransaction>;
 
-  executeUserTimeout(orderId: string): Promise<ethers.ContractTransaction>;
+  executeUserTimeout(orderId: string, params?: NetworkParams): Promise<ethers.ContractTransaction>;
 
-  executeSolverTimeout(orderId: string): Promise<ethers.ContractTransaction>;
+  executeSolverTimeout(orderId: string, params?: NetworkParams): Promise<ethers.ContractTransaction>;
 }
 
 export function initOrderEngine(orderEngineAddress: string, provider: ethers.providers.JsonRpcProvider | ethers.Signer): OrderEngineContract {
@@ -119,12 +123,12 @@ export function printOrder(baseParams: BaseParams, quoteParams: QuoteParams, pri
       solverTxHash: quoteParams.solverTxHash
     },
     pricingParams: {
-      baseAmount: pricingParams.baseAmount.toString(),
-      quoteAmount: pricingParams.quoteAmount.toString(),
-      price_e18: pricingParams.price_e18.toString(),
-      maxPrice_e18: pricingParams.maxPrice_e18.toString(),
-      auctionDuration: pricingParams.auctionDuration.toString(),
-      baseTokenPriceToUsd_e4: pricingParams.baseTokenPriceToUsd_e4.toString(),
+      baseAmount: pricingParams.baseAmount,
+      quoteAmount: pricingParams.quoteAmount,
+      price_e18: pricingParams.price_e18,
+      maxPrice_e18: pricingParams.maxPrice_e18,
+      auctionDuration: pricingParams.auctionDuration,
+      baseTokenPriceToUsd_e4: pricingParams.baseTokenPriceToUsd_e4,
       liquidationReceiver: pricingParams.liquidationReceiver
     }
   }, null, 2);
