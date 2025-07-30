@@ -67,16 +67,35 @@ export class CantonNetwork implements Network {
       throw new Error(`Couldn't get Canton tx data for ${txHash}: ${json?.error || 'unknown error'}`);
     }
 
-    const fetchedEvent = json.events_by_id[`${updateId}:0`];
-    const to = fetchedEvent.choice_argument.receiver;
+    const sendResult: any = Object.values(json.events_by_id)
+      .find((e: any) => e.choice == 'TransferCommand_Send');
 
-    const amount = new Big(fetchedEvent.choice_argument.amount)
+    if (sendResult?.exercise_result?.result?.tag !== 'TransferCommandResultSuccess') {
+      log.error(`Transaction ${txHash} failed: ${sendResult?.exercise_result?.result?.tag}`);
+
+      return {
+        to: "",
+        token: "",
+        amount: BigNumber.from(0),
+        confirmed: true
+      };
+    }
+
+    const transfer: any = Object.values(json.events_by_id)
+      .find((e: any) => e.choice == 'AmuletRules_Transfer');
+
+    const output = transfer?.choice_argument?.transfer?.outputs[0] || {
+      receiver: '',
+      amount: '0'
+    };
+
+    const amount = new Big(output.amount)
       .mul(Big(10).pow(this.nativeAssetDecimals))
       .toNumber();
 
     if (tokenAddress === '0x0') {
       return {
-        to: to,
+        to: output.receiver,
         token: tokenAddress,
         amount: BigNumber.from(amount),
         confirmed: true
