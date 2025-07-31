@@ -1,6 +1,6 @@
 {
   "name": "@bronlabs/intents-sdk",
-  "version": "1.0.23",
+  "version": "1.0.24",
   "description": "SDK for Intents DeFi smart contracts",
   "type": "module",
   "main": "./dist/index.js",
