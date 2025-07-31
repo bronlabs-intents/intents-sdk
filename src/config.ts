@@ -19,7 +19,7 @@ export interface IntentsConfig {
   maxRetries: number;
   retryDelay: number;
 
-  networks: {
+  networks?: {
     [key: string]: NetworkConfig;
   };
 }
