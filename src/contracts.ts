@@ -14,7 +14,6 @@ enum OrderStatus {
   WAIT_FOR_SOLVER_TX,
   WAIT_FOR_ORACLE_CONFIRM_SOLVER_TX,
   COMPLETED,
-  TO_BE_LIQUIDATED,
   LIQUIDATED,
   CANCELLED
 }
@@ -39,7 +38,7 @@ interface PricingParams {
   price_e18: number;
   maxPrice_e18: number;
   auctionDuration: number;
-  baseTokenPriceToUsd_e4: number;
+  orderValueInUSD_e18: number;
   liquidationReceiver: string;
 }
 
@@ -69,7 +68,7 @@ export interface OrderEngineContract extends ethers.Contract {
     userAddress: string;
     baseAmount: ethers.BigNumberish;
     quoteAmount: ethers.BigNumberish;
-    baseTokenPriceToUsd_e4: ethers.BigNumberish;
+    orderValueInUSD_e18: ethers.BigNumberish;
     maxPrice_e18: ethers.BigNumberish;
     auctionDuration: ethers.BigNumberish;
     liquidationReceiver: string;
@@ -128,7 +127,7 @@ export function printOrder(baseParams: BaseParams, quoteParams: QuoteParams, pri
       price_e18: pricingParams.price_e18,
       maxPrice_e18: pricingParams.maxPrice_e18,
       auctionDuration: pricingParams.auctionDuration,
-      baseTokenPriceToUsd_e4: pricingParams.baseTokenPriceToUsd_e4,
+      orderValueInUSD_e18: pricingParams.orderValueInUSD_e18,
       liquidationReceiver: pricingParams.liquidationReceiver
     }
   }, null, 2);

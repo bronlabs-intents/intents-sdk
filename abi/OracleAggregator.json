@@ -1,6 +1,16 @@
 [
   {
     "inputs": [],
+    "name": "InvalidInitialization",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotInitializing",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "OA_INVALID_CALL",
     "type": "error"
   },
@@ -26,6 +36,11 @@
   },
   {
     "inputs": [],
+    "name": "OA_ORACLE_ALREADY_VOTED",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "OA_ORACLE_NOT_ACTIVE",
     "type": "error"
   },
@@ -35,13 +50,35 @@
     "type": "error"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableInvalidOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableUnauthorizedAccount",
+    "type": "error"
+  },
+  {
     "anonymous": false,
     "inputs": [
       {
         "indexed": false,
-        "internalType": "uint8",
+        "internalType": "uint64",
         "name": "version",
-        "type": "uint8"
+        "type": "uint64"
       }
     ],
     "name": "Initialized",
@@ -116,6 +153,11 @@
       {
         "internalType": "contract IOrderEngine",
         "name": "_orderEngine",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_owner",
         "type": "address"
       }
     ],
@@ -216,6 +258,24 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      },
+      {
+        "internalType": "bool",
+        "name": "_isUserTx",
+        "type": "bool"
+      }
+    ],
+    "name": "reconcileOracleConsensus",
+    "outputs": [],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {

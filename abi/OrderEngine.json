@@ -35,13 +35,55 @@
     "type": "error"
   },
   {
+    "inputs": [],
+    "name": "EnforcedPause",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "ExpectedPause",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "InvalidInitialization",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotInitializing",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableInvalidOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableUnauthorizedAccount",
+    "type": "error"
+  },
+  {
     "anonymous": false,
     "inputs": [
       {
         "indexed": false,
-        "internalType": "uint8",
+        "internalType": "uint64",
         "name": "version",
-        "type": "uint8"
+        "type": "uint64"
       }
     ],
     "name": "Initialized",
@@ -83,6 +125,32 @@
       }
     ],
     "name": "OwnershipTransferred",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "Paused",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "Unpaused",
     "type": "event"
   },
   {
@@ -131,7 +199,7 @@
           },
           {
             "internalType": "uint256",
-            "name": "baseTokenPriceToUsd_e4",
+            "name": "orderValueInUSD_e18",
             "type": "uint256"
           },
           {
@@ -151,7 +219,7 @@
           }
         ],
         "internalType": "struct IOrderEngine.CreateOrderParams",
-        "name": "_initOrderParams",
+        "name": "_create",
         "type": "tuple"
       }
     ],
@@ -328,7 +396,7 @@
               },
               {
                 "internalType": "uint256",
-                "name": "baseTokenPriceToUsd_e4",
+                "name": "orderValueInUSD_e18",
                 "type": "uint256"
               },
               {
@@ -364,7 +432,7 @@
     "inputs": [
       {
         "internalType": "address",
-        "name": "_oracle",
+        "name": "_oracleAggregator",
         "type": "address"
       },
       {
@@ -381,6 +449,11 @@
         "internalType": "uint256",
         "name": "_defaultSolverSettlementTime",
         "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "_owner",
+        "type": "address"
       }
     ],
     "name": "initialize",
@@ -396,7 +469,7 @@
         "type": "address"
       }
     ],
-    "name": "isBrodcaster",
+    "name": "isBroadcaster",
     "outputs": [
       {
         "internalType": "bool",
@@ -409,7 +482,7 @@
   },
   {
     "inputs": [],
-    "name": "oracle",
+    "name": "oracleAggregator",
     "outputs": [
       {
         "internalType": "address",
@@ -428,6 +501,26 @@
         "internalType": "address",
         "name": "",
         "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "pause",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "paused",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
       }
     ],
     "stateMutability": "view",
@@ -480,16 +573,16 @@
     "inputs": [
       {
         "internalType": "address",
-        "name": "_brodcaster",
+        "name": "_broadcaster",
         "type": "address"
       },
       {
         "internalType": "bool",
-        "name": "_isBrodcaster",
+        "name": "_isBroadcaster",
         "type": "bool"
       }
     ],
-    "name": "setBrodcaster",
+    "name": "setBroadcaster",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -546,6 +639,19 @@
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "_oracleAggregator",
+        "type": "address"
+      }
+    ],
+    "name": "setOracleAggregator",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "string",
         "name": "_orderId",
         "type": "string"
@@ -575,6 +681,19 @@
       }
     ],
     "name": "setOracleConfirmUserTx",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_solverRegister",
+        "type": "address"
+      }
+    ],
+    "name": "setSolverRegister",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -660,6 +779,13 @@
       }
     ],
     "name": "transferOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "unpause",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
