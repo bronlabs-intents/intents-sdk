@@ -4,12 +4,13 @@ import { Network, TransactionData } from './index.js';
 import { log } from '../utils.js';
 
 interface EthTransactionReceipt {
+  status: number;
   to: string;
+  blockNumber: number;
   logs: {
     topics: string[];
     data: string;
   }[];
-  blockNumber: number;
 }
 
 export class EvmNetwork implements Network {
@@ -52,9 +53,40 @@ export class EvmNetwork implements Network {
   async getTxData(txHash: string, tokenAddress: string): Promise<TransactionData | undefined> {
     const currentBlock = await this.provider.getBlockNumber();
 
+    const { result: receiptResult } = await fetch(this.rpcUrl, {
+      method: 'POST',
+      body: JSON.stringify({
+        id: 1,
+        jsonrpc: "2.0",
+        method: "eth_getTransactionReceipt",
+        params: [txHash]
+      })
+    }).then((res) => res.json());
+
+    if (!receiptResult) {
+      return;
+    }
+
+    const receipt = receiptResult as EthTransactionReceipt;
+
+    const confirmed = (currentBlock - receipt.blockNumber) >= this.confirmations;
+
+    log.info(`Confirmations ${txHash}: ${currentBlock - receipt.blockNumber}, confirmed: ${confirmed}`)
+
+    if (receipt.status !== 1) {
+      log.warn(`Transaction ${txHash} failed on blockchain: ${JSON.stringify(receipt)}`);
+
+      return {
+        to: "",
+        token: "",
+        amount: BigNumber.from(0),
+        confirmed
+      };
+    }
+
     // Native token - ETH
     if (tokenAddress === "0x0") {
-      const response = await fetch(this.rpcUrl, {
+      const { result } = await fetch(this.rpcUrl, {
         method: 'POST',
         body: JSON.stringify({
           id: 1,
@@ -62,30 +94,13 @@ export class EvmNetwork implements Network {
           method: "eth_getTransactionByHash",
           params: [txHash]
         })
-      });
-
-      const { result } = await response.json();
+      }).then((res) => res.json());
 
       if (!result) {
         return;
       }
 
-      const confirmed = (currentBlock - result.blockNumber) >= this.confirmations;
-
-      if (result.status != "0x1") {
-        log.warn(`Transaction ${txHash} failed on blockchain: ${result}`);
-
-        return {
-          to: "",
-          token: "",
-          amount: BigNumber.from(0),
-          confirmed
-        };
-      }
-
-      const { to, value, blockNumber } = result;
-
-      log.info(`Confirmations ${txHash}: ${currentBlock - blockNumber}`)
+      const { to, value } = result;
 
       return {
         to: to,
@@ -96,39 +111,6 @@ export class EvmNetwork implements Network {
     }
 
     // ERC20 token
-    const response = await fetch(this.rpcUrl, {
-      method: 'POST',
-      body: JSON.stringify({
-        id: 1,
-        jsonrpc: "2.0",
-        method: "eth_getTransactionReceipt",
-        params: [txHash]
-      })
-    });
-
-    const { result } = await response.json();
-
-    if (!result) {
-      return;
-    }
-
-    const confirmed = (currentBlock - result.blockNumber) >= this.confirmations;
-
-    if (result.status != "0x1") {
-      log.warn(`Transaction ${txHash} failed on blockchain: ${result}`);
-
-      return {
-        to: "",
-        token: "",
-        amount: BigNumber.from(0),
-        confirmed
-      };
-    }
-
-    const receipt = result as EthTransactionReceipt;
-
-    log.info(`Confirmations ${txHash}: ${currentBlock - receipt.blockNumber}`)
-
     return {
       to: '0x' + receipt.logs[0].topics[2].slice(26),
       token: receipt.to,
