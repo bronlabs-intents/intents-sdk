@@ -102,8 +102,6 @@ export class OrderIndexer {
       }
 
       if (currentBlock > this.lastProcessedBlock) {
-        log.info(`Indexing from block ${this.lastProcessedBlock + 1} to ${currentBlock} (${currentBlock - this.lastProcessedBlock} blocks)`);
-
         // Fetch historical events in chunks to avoid RPC limitations
         const chunkSize = 500;
         for (let fromBlock = this.lastProcessedBlock + 1; fromBlock <= currentBlock; fromBlock += chunkSize) {
@@ -115,12 +113,14 @@ export class OrderIndexer {
             toBlock
           );
 
-          log.info(`Found ${events.length} events between blocks ${fromBlock} and ${toBlock}`);
+          if (events.length > 0) {
+            log.info(`Found ${events.length} events between blocks ${fromBlock} and ${toBlock}`);
+          }
 
           for (const event of events) {
             const { args: { orderId, status } } = this.orderEngine.interface.parseLog({
               topics: event.topics,
-              data: event.data,
+              data: event.data
             });
 
             this.eventQueue.add({
