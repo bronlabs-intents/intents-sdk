@@ -4,9 +4,9 @@ import { Network, TransactionData } from './index.js';
 import { log } from '../utils.js';
 
 interface EthTransactionReceipt {
-  status: number;
+  status: string;
   to: string;
-  blockNumber: number;
+  blockNumber: string;
   logs: {
     topics: string[];
     data: string;
@@ -69,11 +69,11 @@ export class EvmNetwork implements Network {
 
     const receipt = receiptResult as EthTransactionReceipt;
 
-    const confirmed = (currentBlock - receipt.blockNumber) >= this.confirmations;
+    const confirmed = (currentBlock - parseInt(receipt.blockNumber, 16)) >= this.confirmations;
 
-    log.info(`Confirmations ${txHash}: ${currentBlock - receipt.blockNumber}, confirmed: ${confirmed}`)
+    log.info(`Confirmations ${txHash}: ${currentBlock - parseInt(receipt.blockNumber, 16)}, confirmed: ${confirmed}`)
 
-    if (receipt.status !== 1) {
+    if (receipt.status !== '0x1') {
       log.warn(`Transaction ${txHash} failed on blockchain: ${JSON.stringify(receipt)}`);
 
       return {
