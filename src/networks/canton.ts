@@ -3,8 +3,7 @@ import * as ed25519 from '@noble/ed25519';
 import fetch from 'node-fetch';
 
 import { Network, TransactionData } from './index.js';
-import { log } from '../utils.js';
-import { expRetry } from './utils.js';
+import { log, expRetry } from '../utils.js';
 
 
 export class CantonNetwork implements Network {

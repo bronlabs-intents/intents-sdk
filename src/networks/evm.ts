@@ -1,4 +1,4 @@
-import { BigNumberish, ethers } from 'ethers';
+import { ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
 import { log } from '../utils.js';

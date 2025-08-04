@@ -1,4 +1,3 @@
-import { BigNumberish } from "ethers";
 import { Connection, Transaction, SystemProgram, Keypair, PublicKey } from "@solana/web3.js";
 import { createTransferInstruction, getOrCreateAssociatedTokenAccount } from "@solana/spl-token";
 import bs58 from "bs58";

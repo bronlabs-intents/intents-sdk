@@ -1,4 +1,3 @@
-import { BigNumberish } from "ethers";
 import { fromHex } from "tron-format-address";
 import { TronWeb } from "tronweb";
 
