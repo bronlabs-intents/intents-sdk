@@ -1,4 +1,3 @@
-import { BigNumberish } from 'ethers';
 import { NetworkConfig } from '../config.js';
 
 import { EvmNetwork } from './evm.js';
@@ -10,7 +9,7 @@ import { BtcNetwork } from './btc.js';
 export interface TransactionData {
   to: string;
   token: string;
-  amount: BigNumberish;
+  amount: bigint;
   confirmed: boolean;
 }
 
@@ -20,7 +19,7 @@ export interface Network {
 
   getTxData(txHash: string, tokenAddress: string, recipientAddress: string): Promise<TransactionData | undefined>;
 
-  transfer(privateKey: string, to: string, value: BigNumberish, tokenAddress: string): Promise<string>;
+  transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string>;
 
   readonly retryDelay: number;
 }

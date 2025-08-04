@@ -83,7 +83,7 @@ export class TrxNetwork implements Network {
         return {
           to: "",
           token: "",
-          amount: 0,
+          amount: 0n,
           confirmed
         };
       }
@@ -93,7 +93,7 @@ export class TrxNetwork implements Network {
       return {
         to: fromHex(response.raw_data.contract[0].parameter.value.to_address),
         token: tokenAddress,
-        amount: Number(response.raw_data.contract[0].parameter.value.amount),
+        amount: BigInt(response.raw_data.contract[0].parameter.value.amount),
         confirmed
       };
     }
@@ -121,7 +121,7 @@ export class TrxNetwork implements Network {
       return {
         to: "",
         token: "",
-        amount: 0,
+        amount: 0n,
         confirmed
       };
     }
@@ -129,12 +129,12 @@ export class TrxNetwork implements Network {
     return {
       to: fromHex("0x" + response.log[0].topics[2].toString().slice(24)),
       token: fromHex(response.contract_address),
-      amount: Number(parseInt(response.log[0].data, 16)),
+      amount: BigInt(parseInt(response.log[0].data, 16)),
       confirmed
     };
   }
 
-  async transfer(privateKey: string, to: string, value: BigNumberish, tokenAddress: string): Promise<string> {
+  async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {
     // Set private key
     this.tronWeb.setPrivateKey(privateKey);
 

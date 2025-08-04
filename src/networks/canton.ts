@@ -76,7 +76,7 @@ export class CantonNetwork implements Network {
       return {
         to: "",
         token: "",
-        amount: 0,
+        amount: 0n,
         confirmed: true
       };
     }
@@ -89,9 +89,7 @@ export class CantonNetwork implements Network {
       amount: '0'
     };
 
-    const amount = new Big(output.amount)
-      .mul(Big(10).pow(this.nativeAssetDecimals))
-      .toNumber();
+    const amount = BigInt(output.amount) * (10n ** BigInt(this.nativeAssetDecimals));
 
     if (tokenAddress === '0x0') {
       return {
@@ -105,7 +103,7 @@ export class CantonNetwork implements Network {
     throw new Error("Canton does not support tokens");
   }
 
-  async transfer(privateKey: string, to: string, value: BigNumberish, tokenAddress: string): Promise<string> {
+  async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {
     if (tokenAddress != '0x0') {
       throw new Error("Canton does not support tokens");
     }
@@ -135,7 +133,7 @@ export class CantonNetwork implements Network {
       body: {
         "sender_party_id": this.senderPartyId,
         "receiver_party_id": to,
-        "amount": new Big(value.toString()).div(new Big(10).pow(this.nativeAssetDecimals)).toString(),
+        "amount": (value / (10n ** BigInt(this.nativeAssetDecimals))),
         "expires_at": new Date(Date.now() + 86400000).toISOString(),
         "nonce": nonce
       }

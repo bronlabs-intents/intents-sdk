@@ -79,7 +79,7 @@ export class EvmNetwork implements Network {
       return {
         to: "",
         token: "",
-        amount: 0,
+        amount: 0n,
         confirmed
       };
     }
@@ -105,7 +105,7 @@ export class EvmNetwork implements Network {
       return {
         to: to,
         token: tokenAddress,
-        amount: Number(value),
+        amount: BigInt(value),
         confirmed
       };
     }
@@ -114,12 +114,12 @@ export class EvmNetwork implements Network {
     return {
       to: '0x' + receipt.logs[0].topics[2].slice(26),
       token: receipt.to,
-      amount: Number(receipt.logs[0].data),
+      amount: BigInt(receipt.logs[0].data),
       confirmed
     };
   }
 
-  async transfer(privateKey: string, to: string, value: BigNumberish, tokenAddress: string): Promise<string> {
+  async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {
     const signer = new ethers.Wallet(privateKey, this.provider);
 
     if (tokenAddress === "0x0") {

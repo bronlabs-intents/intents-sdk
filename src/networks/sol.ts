@@ -78,7 +78,7 @@ export class SolNetwork implements Network {
       return {
         to: "",
         token: "",
-        amount: 0,
+        amount: 0n,
         confirmed
       };
     }
@@ -91,14 +91,14 @@ export class SolNetwork implements Network {
         return {
           to: result.transaction.message.accountKeys[0],
           token: tokenAddress,
-          amount: Number(result.meta.postBalances[0] - result.meta.preBalances[0]),
+          amount: BigInt(result.meta.postBalances[0]) - BigInt(result.meta.preBalances[0]),
           confirmed
         };
       } else {
         return {
           to: result.transaction.message.accountKeys[1],
           token: tokenAddress,
-          amount: Number(result.meta.postBalances[1] - result.meta.preBalances[1]),
+          amount: BigInt(result.meta.postBalances[1]) - BigInt(result.meta.preBalances[1]),
           confirmed
         }
       }
@@ -126,20 +126,20 @@ export class SolNetwork implements Network {
     const postTokenBalanceOfReceiver = postTokenBalances.find((balance: any) => balance.owner != senderAddress)
     const preTokenBalanceOfReceiver = preTokenBalances.find((balance: any) => balance.owner != senderAddress)
 
-    let preBalance = 0
+    let preBalance = 0n
     if (preTokenBalanceOfReceiver?.uiTokenAmount.amount) {
-      preBalance = Number(preTokenBalanceOfReceiver.uiTokenAmount.amount)
+      preBalance = BigInt(preTokenBalanceOfReceiver.uiTokenAmount.amount)
     }
 
     return {
       to: postTokenBalanceOfReceiver.owner,
       token: postTokenBalanceOfReceiver.mint,
-      amount: Number(postTokenBalanceOfReceiver.uiTokenAmount.amount - preBalance),
+      amount: BigInt(postTokenBalanceOfReceiver.uiTokenAmount.amount) - preBalance,
       confirmed
     };
   }
 
-  async transfer(privateKey: string, to: string, value: BigNumberish, tokenAddress: string): Promise<string> {
+  async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {
     const keypair = this.base58ToKeypair(privateKey);
 
     if (tokenAddress === "0x0") {
@@ -148,7 +148,7 @@ export class SolNetwork implements Network {
         SystemProgram.transfer({
           fromPubkey: keypair.publicKey,
           toPubkey: new PublicKey(to),
-          lamports: Number(value)
+          lamports: value
         })
       );
 
@@ -180,7 +180,7 @@ export class SolNetwork implements Network {
         senderTokenAccount.address,
         receiverTokenAccount.address,
         keypair.publicKey,
-        Number(value)
+        value
       )
     );
 

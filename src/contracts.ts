@@ -92,6 +92,12 @@ export interface OrderEngineContract {
   executeSolverTimeout(orderId: string, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
 }
 
+export interface OracleAggregatorContract {
+  oracleConfirmUserTx(orderId: string, isConfirmed: boolean, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
+
+  oracleConfirmSolverTx(orderId: string, isConfirmed: boolean, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
+}
+
 export function initOrderEngine(orderEngineAddress: string, provider: ethers.JsonRpcProvider | ethers.Signer): OrderEngineContract & ethers.Contract {
   return new ethers.Contract(
     orderEngineAddress,
@@ -100,12 +106,12 @@ export function initOrderEngine(orderEngineAddress: string, provider: ethers.Jso
   ) as OrderEngineContract & ethers.Contract;
 }
 
-export function initOracleAggregator(oracleAggregatorAddress: string, provider: ethers.JsonRpcProvider | ethers.Signer): ethers.Contract {
+export function initOracleAggregator(oracleAggregatorAddress: string, provider: ethers.JsonRpcProvider | ethers.Signer): OracleAggregatorContract & ethers.Contract {
   return new ethers.Contract(
     oracleAggregatorAddress,
     JSON.parse(fs.readFileSync(path.join(__dirname, '../abi/OracleAggregator.json'), 'utf8')),
     provider
-  );
+  ) as OracleAggregatorContract & ethers.Contract;
 }
 
 export function printOrder(baseParams: BaseParams, quoteParams: QuoteParams, pricingParams: PricingParams): string {
