@@ -1,17 +1,17 @@
-import { ethers } from 'ethers';
+import { ethers, LogDescription, EventLog } from 'ethers';
 
 import { sleep, log } from './utils.js';
 import { EventQueue } from './eventQueue.js';
-import { initOrderEngine } from './contracts.js';
+import { initOrderEngine, OrderEngineContract } from './contracts.js';
 import { IntentsConfig } from './config.js';
 
 export interface OrderStatusChangedEvent {
   type: 'OrderStatusChanged';
   data: {
     orderId: string;
-    status: number;
+    status: bigint;
   };
-  event: ethers.Event;
+  event: ethers.EventLog;
   retries: number;
 }
 
@@ -20,8 +20,8 @@ type EventProcessor = (event: OrderStatusChangedEvent) => Promise<void>;
 export class OrderIndexer {
 
   private readonly config: IntentsConfig;
-  private readonly provider: ethers.providers.JsonRpcProvider;
-  private readonly orderEngine: ethers.Contract;
+  private readonly provider: ethers.JsonRpcProvider;
+  private readonly orderEngine: OrderEngineContract & ethers.Contract;
   private readonly eventQueue: EventQueue<OrderStatusChangedEvent>;
   private readonly processors: EventProcessor[];
   private isRunning: boolean;
@@ -29,7 +29,7 @@ export class OrderIndexer {
 
   constructor(config: IntentsConfig) {
     this.config = config;
-    this.provider = new ethers.providers.JsonRpcProvider(config.rpcUrl);
+    this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
 
     this.orderEngine = initOrderEngine(
       config.orderEngineAddress,
@@ -121,15 +121,15 @@ export class OrderIndexer {
             const { args: { orderId, status } } = this.orderEngine.interface.parseLog({
               topics: event.topics,
               data: event.data
-            });
+            }) as LogDescription;
 
             this.eventQueue.add({
               type: 'OrderStatusChanged',
               data: {
                 orderId,
-                status: parseInt(status.toString(), 10)
+                status: BigInt(status)
               },
-              event,
+              event: event as EventLog,
               retries: 0
             });
           }

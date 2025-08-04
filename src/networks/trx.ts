@@ -1,4 +1,4 @@
-import { BigNumber } from "ethers";
+import { BigNumberish } from "ethers";
 import { fromHex } from "tron-format-address";
 import { TronWeb } from "tronweb";
 
@@ -83,7 +83,7 @@ export class TrxNetwork implements Network {
         return {
           to: "",
           token: "",
-          amount: BigNumber.from(0),
+          amount: 0,
           confirmed
         };
       }
@@ -93,7 +93,7 @@ export class TrxNetwork implements Network {
       return {
         to: fromHex(response.raw_data.contract[0].parameter.value.to_address),
         token: tokenAddress,
-        amount: BigNumber.from(response.raw_data.contract[0].parameter.value.amount),
+        amount: Number(response.raw_data.contract[0].parameter.value.amount),
         confirmed
       };
     }
@@ -121,7 +121,7 @@ export class TrxNetwork implements Network {
       return {
         to: "",
         token: "",
-        amount: BigNumber.from(0),
+        amount: 0,
         confirmed
       };
     }
@@ -129,18 +129,18 @@ export class TrxNetwork implements Network {
     return {
       to: fromHex("0x" + response.log[0].topics[2].toString().slice(24)),
       token: fromHex(response.contract_address),
-      amount: BigNumber.from(parseInt(response.log[0].data, 16)),
+      amount: Number(parseInt(response.log[0].data, 16)),
       confirmed
     };
   }
 
-  async transfer(privateKey: string, to: string, value: BigNumber, tokenAddress: string): Promise<string> {
+  async transfer(privateKey: string, to: string, value: BigNumberish, tokenAddress: string): Promise<string> {
     // Set private key
     this.tronWeb.setPrivateKey(privateKey);
 
     if (tokenAddress === "0x0") {
       // Send TRX (native token)
-      const tx = await this.tronWeb.trx.sendTransaction(to, value.toNumber());
+      const tx = await this.tronWeb.trx.sendTransaction(to, Number(value));
       return tx.txid;
     }
 
@@ -148,6 +148,6 @@ export class TrxNetwork implements Network {
 
     // Send USDT or other TRC20 tokens
     const contract = this.tronWeb.contract(abi.entrys, tokenAddress);
-    return await contract.methods.transfer(to, value.toNumber()).send();
+    return await contract.methods.transfer(to, Number(value)).send();
   }
 }

@@ -1,4 +1,4 @@
-import { BigNumber } from 'ethers';
+import { BigNumberish } from 'ethers';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import * as ed25519 from '@noble/ed25519';
 import Big from 'big.js';
@@ -76,7 +76,7 @@ export class CantonNetwork implements Network {
       return {
         to: "",
         token: "",
-        amount: BigNumber.from(0),
+        amount: 0,
         confirmed: true
       };
     }
@@ -97,7 +97,7 @@ export class CantonNetwork implements Network {
       return {
         to: output.receiver,
         token: tokenAddress,
-        amount: BigNumber.from(amount),
+        amount,
         confirmed: true
       };
     }
@@ -105,7 +105,7 @@ export class CantonNetwork implements Network {
     throw new Error("Canton does not support tokens");
   }
 
-  async transfer(privateKey: string, to: string, value: BigNumber, tokenAddress: string): Promise<string> {
+  async transfer(privateKey: string, to: string, value: BigNumberish, tokenAddress: string): Promise<string> {
     if (tokenAddress != '0x0') {
       throw new Error("Canton does not support tokens");
     }

@@ -1,4 +1,4 @@
-import { BigNumber, ethers } from 'ethers';
+import { BigNumberish, ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
 import { log } from '../utils.js';
@@ -15,14 +15,14 @@ interface EthTransactionReceipt {
 
 export class EvmNetwork implements Network {
   private readonly rpcUrl: string;
-  private readonly provider: ethers.providers.JsonRpcProvider;
+  private readonly provider: ethers.JsonRpcProvider;
   private readonly confirmations: number;
   private readonly nativeAssetDecimals: number = 18;
   readonly retryDelay: number = 5000;
 
   constructor(rpcUrl: string, confirmations: number = 6) {
     this.rpcUrl = rpcUrl;
-    this.provider = new ethers.providers.JsonRpcProvider(rpcUrl);
+    this.provider = new ethers.JsonRpcProvider(rpcUrl);
     this.confirmations = confirmations;
   }
 
@@ -79,7 +79,7 @@ export class EvmNetwork implements Network {
       return {
         to: "",
         token: "",
-        amount: BigNumber.from(0),
+        amount: 0,
         confirmed
       };
     }
@@ -105,7 +105,7 @@ export class EvmNetwork implements Network {
       return {
         to: to,
         token: tokenAddress,
-        amount: BigNumber.from(value),
+        amount: Number(value),
         confirmed
       };
     }
@@ -114,12 +114,12 @@ export class EvmNetwork implements Network {
     return {
       to: '0x' + receipt.logs[0].topics[2].slice(26),
       token: receipt.to,
-      amount: BigNumber.from(receipt.logs[0].data),
+      amount: Number(receipt.logs[0].data),
       confirmed
     };
   }
 
-  async transfer(privateKey: string, to: string, value: BigNumber, tokenAddress: string): Promise<string> {
+  async transfer(privateKey: string, to: string, value: BigNumberish, tokenAddress: string): Promise<string> {
     const signer = new ethers.Wallet(privateKey, this.provider);
 
     if (tokenAddress === "0x0") {

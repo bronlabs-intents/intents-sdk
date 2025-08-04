@@ -1,4 +1,4 @@
-import { BigNumber } from 'ethers';
+import { BigNumberish } from 'ethers';
 import * as bitcoin from 'bitcoinjs-lib';
 import { ECPairFactory } from 'ecpair';
 import * as ecc from 'tiny-secp256k1';
@@ -63,7 +63,7 @@ export class BtcNetwork implements Network {
         return {
           to: recipientAddress,
           token: tokenAddress,
-          amount: BigNumber.from(0),
+          amount: 0,
           confirmed: tx.confirmations >= this.confirmations
         };
       }
@@ -73,7 +73,7 @@ export class BtcNetwork implements Network {
       return {
         to: recipientAddress,
         token: tokenAddress,
-        amount: BigNumber.from(Math.round(output.value * 100000000)),
+        amount: Math.round(output.value * 100000000),
         confirmed: tx.confirmations >= this.confirmations
       };
     } catch (error) {
@@ -82,7 +82,7 @@ export class BtcNetwork implements Network {
     }
   }
 
-  async transfer(privateKey: string, to: string, value: BigNumber, tokenAddress: string): Promise<string> {
+  async transfer(privateKey: string, to: string, value: BigNumberish, tokenAddress: string): Promise<string> {
     if (tokenAddress !== "0x0") {
       throw new Error("Don't support tokens for BTC network");
     }
@@ -95,7 +95,7 @@ export class BtcNetwork implements Network {
       throw new Error("No UTXOs available");
     }
 
-    const targetAmount = value.toNumber();
+    const targetAmount = Number(value);
     const feeRate = await this.getFeeRate();
     let inputAmount = 0;
     const selectedUtxos: BtcUtxo[] = [];
