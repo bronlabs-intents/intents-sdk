@@ -11,6 +11,7 @@ interface BtcTransaction {
   vout: Array<{
     value: bigint;
     scriptPubKey: {
+      address: string;
       addresses: string[];
     };
   }>;
@@ -54,11 +55,12 @@ export class BtcNetwork implements Network {
       if (!tx) return;
 
       const output = tx.vout.find(vout =>
-        vout.scriptPubKey.addresses?.includes(recipientAddress)
+        vout.scriptPubKey.address === recipientAddress || vout.scriptPubKey.addresses?.includes(recipientAddress)
       );
 
       if (!output) {
-        log.warn(`Transaction ${txHash} has no output to ${recipientAddress}`);
+        log.warn(`Transaction ${txHash} has no output to ${recipientAddress}: ${JSON.stringify(tx.vout, null, 2)}`);
+
         return {
           to: recipientAddress,
           token: tokenAddress,
