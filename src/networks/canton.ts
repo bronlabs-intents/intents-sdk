@@ -1,7 +1,5 @@
-import { BigNumberish } from 'ethers';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import * as ed25519 from '@noble/ed25519';
-import Big from 'big.js';
 import fetch from 'node-fetch';
 
 import { Network, TransactionData } from './index.js';
@@ -155,7 +153,10 @@ export class CantonNetwork implements Network {
     return expRetry(async () => {
       log.info(`Waiting for transaction ${update_id} confirmation...`);
 
-      const result = await fetch(`${this.scanApiUrl}/v2/updates/${update_id}`);
+      const result = await fetch(`${this.scanApiUrl}/v2/updates/${update_id}`, {
+        method: 'GET',
+        agent: this.proxyAgent
+      });
 
       if (!result.ok) {
         throw new Error(`Couldn't get Canton tx data for ${update_id}: ${result.status} ${result.statusText}`);
