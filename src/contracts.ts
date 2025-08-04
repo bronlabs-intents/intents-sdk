@@ -55,7 +55,7 @@ export interface Order {
 }
 
 interface NetworkParams {
-  gasLimit: bigint;
+  gasLimit: number;
 }
 
 export interface OrderEngineContract {
