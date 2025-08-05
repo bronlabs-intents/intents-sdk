@@ -3,7 +3,7 @@ import { log, sleep } from './utils.js';
 
 interface OrderEvent {
   orderId: string;
-  status: string;
+  status: bigint;
 }
 
 export abstract class OrderProcessor {
@@ -16,7 +16,7 @@ export abstract class OrderProcessor {
     this.processDelayedQueue().then(() => undefined);
   }
 
-  abstract process(orderId: string, status: string): Promise<void>;
+  abstract process(orderId: string, status: bigint): Promise<void>;
 
   async stop(): Promise<void> {
     if (!this.isRunning) {
