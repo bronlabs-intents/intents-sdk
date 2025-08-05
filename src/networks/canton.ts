@@ -131,7 +131,7 @@ export class CantonNetwork implements Network {
       body: {
         "sender_party_id": this.senderPartyId,
         "receiver_party_id": to,
-        "amount": (value / (10n ** BigInt(this.nativeAssetDecimals))),
+        "amount": Big(value.toString()).div(Big(10).pow(this.nativeAssetDecimals)).toFixed(this.nativeAssetDecimals),
         "expires_at": new Date(Date.now() + 86400000).toISOString(),
         "nonce": nonce
       }
