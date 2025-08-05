@@ -44,6 +44,7 @@ export abstract class OrderProcessor {
           this.delayedQueue.remove();
         } catch (error) {
           log.error(`Error processing delayed event:`, error);
+          await sleep(7000);
         }
       }
     }
