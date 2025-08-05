@@ -4,6 +4,7 @@ import fetch from 'node-fetch';
 
 import { Network, TransactionData } from './index.js';
 import { log, expRetry } from '../utils.js';
+import { Big } from 'big.js';
 
 
 export class CantonNetwork implements Network {
@@ -86,7 +87,7 @@ export class CantonNetwork implements Network {
       amount: '0'
     };
 
-    const amount = BigInt(output.amount) * (10n ** BigInt(this.nativeAssetDecimals));
+    const amount = BigInt(Big(output.amount).mul(Big(10).pow(this.nativeAssetDecimals)).toFixed(0));
 
     if (tokenAddress === '0x0') {
       return {
