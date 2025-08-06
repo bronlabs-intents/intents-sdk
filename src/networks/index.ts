@@ -27,8 +27,9 @@ export interface Network {
 const networkBuilders = {
   "testBTC": (cf: NetworkConfig) => new BtcNetwork(cf.rpcUrl, 1),
   "testETH": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 1),
-  "testTRX": (cf: NetworkConfig) => new TrxNetwork(cf.rpcUrl, 1),
-  "testSOL": (cf: NetworkConfig) => new SolNetwork(cf.rpcUrl, 1),
+  "testOP": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 10),
+  "testTRX": (cf: NetworkConfig) => new TrxNetwork(cf.rpcUrl, 10),
+  "testSOL": (cf: NetworkConfig) => new SolNetwork(cf.rpcUrl, 10),
   "testCC": (cf: NetworkConfig) => new CantonNetwork(cf.rpcUrl, cf.scanApiUrl, cf.authUrl, cf.clientId, cf.clientSecret, cf.walletAddress),
 
   "BTC": (cf: NetworkConfig) => new BtcNetwork(cf.rpcUrl, 2),
