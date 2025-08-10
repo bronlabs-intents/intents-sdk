@@ -114,6 +114,14 @@ export function initOracleAggregator(oracleAggregatorAddress: string, provider: 
   ) as OracleAggregatorContract & ethers.Contract;
 }
 
+export function initSolverRegister(solverRegisterAddress: string, provider: ethers.JsonRpcProvider | ethers.Signer): ethers.Contract {
+  return new ethers.Contract(
+    solverRegisterAddress,
+    JSON.parse(fs.readFileSync(path.join(__dirname, '../abi/SolverRegister.json'), 'utf8')),
+    provider
+  ) as ethers.Contract;
+}
+
 export function printOrder(baseParams: BaseParams, quoteParams: QuoteParams, pricingParams: PricingParams): string {
   return JSON.stringify({
     baseParams: {
