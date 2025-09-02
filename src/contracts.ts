@@ -145,5 +145,5 @@ export function printOrder(baseParams: BaseParams, quoteParams: QuoteParams, pri
       orderValueInUSD_e18: pricingParams.orderValueInUSD_e18.toString(),
       liquidationReceiver: pricingParams.liquidationReceiver
     }
-  }, null, 2);
+  });
 }
