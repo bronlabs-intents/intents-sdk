@@ -65,21 +65,30 @@ export class CantonNetwork implements Network {
       throw new Error(`Couldn't get Canton tx data for ${txHash}: ${json?.error || 'unknown error'}`);
     }
 
-    const sendResult: any = Object.values(json.events_by_id)
-      .find((e: any) => e.choice == 'TransferCommand_Send');
+    const events = Object.values(json.events_by_id ?? {}) as any[];
+    const transferCommandEvent = events.find(e => e.choice === 'TransferCommand_Send');
+    const transferFactoryEvent = events.find(e => e.choice === 'TransferFactory_Transfer');
 
-    if (sendResult?.exercise_result?.result?.tag !== 'TransferCommandResultSuccess') {
-      log.error(`Transaction ${txHash} failed: ${sendResult?.exercise_result?.result?.tag}`);
+    const transferCommandResultTag = transferCommandEvent?.exercise_result?.result?.tag;
+    const transferFactoryResultTag = transferFactoryEvent?.exercise_result?.output?.tag;
+
+    const isSuccess =
+      transferCommandResultTag === 'TransferCommandResultSuccess' ||
+      transferFactoryResultTag === 'TransferInstructionResult_Completed';
+
+    if (!isSuccess) {
+      const tag = transferCommandResultTag ?? transferFactoryResultTag ?? 'Unknown';
+      log.error(`Transaction ${txHash} failed: ${tag}`);
 
       return {
-        to: "",
-        token: "",
-        amount: 0n,
-        confirmed: true
+          to: "",
+          token: "",
+          amount: 0n,
+          confirmed: true
       };
     }
 
-    const transfer: any = Object.values(json.events_by_id)
+    const transfer: any = events
       .find((e: any) => e.choice == 'AmuletRules_Transfer');
 
     const output = transfer?.choice_argument?.transfer?.outputs[0] || {
