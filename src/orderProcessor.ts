@@ -61,7 +61,8 @@ export abstract class OrderProcessor {
         await this.process(event.orderId, event.status);
         this.delayedQueue.remove();
       } catch (error) {
-        log.error(`Error processing delayed event ${event.orderId} ${event.status}:`, error);
+        log.error(`Error processing delayed event ${event.orderId} ${event.status}: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);
+
         event.attempts += 1;
         event.nextAttemptAt = Date.now() + this.backoffMs(event.attempts);
 
