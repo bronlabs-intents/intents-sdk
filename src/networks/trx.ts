@@ -9,7 +9,7 @@ export class TrxNetwork implements Network {
   private readonly authHeaders: Record<string, string> = {};
   private readonly confirmations: number;
   private readonly nativeAssetDecimals: number = 6;
-  readonly retryDelay: number = 5000;
+  readonly retryDelay: number = 10000;
   private tronWeb: TronWeb;
 
   constructor(rpcUrl: string, confirmations: number = 20) {
