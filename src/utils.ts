@@ -4,9 +4,8 @@ export const log = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
   format: winston.format.combine(
     winston.format.colorize(),
-    winston.format.timestamp(),
-    winston.format.printf(({ level, message, timestamp }: winston.Logform.TransformableInfo) => {
-      return `${timestamp} ${level}\t${message}`;
+    winston.format.printf(({ level, message }: winston.Logform.TransformableInfo) => {
+      return `${level}\t${message}`;
     })
   ),
   transports: [new winston.transports.Console()]

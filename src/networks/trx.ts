@@ -6,16 +6,27 @@ import { log } from "../utils.js";
 
 export class TrxNetwork implements Network {
   private readonly rpcUrl: string;
+  private readonly authHeaders: Record<string, string> = {};
   private readonly confirmations: number;
   private readonly nativeAssetDecimals: number = 6;
-  readonly retryDelay: number = 5000;
+  readonly retryDelay: number = 10000;
   private tronWeb: TronWeb;
 
   constructor(rpcUrl: string, confirmations: number = 20) {
-    this.rpcUrl = rpcUrl;
+    if (rpcUrl.includes('@')) {
+      const [rpcUrlPart, apiKey] = rpcUrl.split('@', 2);
+
+      this.rpcUrl = rpcUrlPart;
+      this.authHeaders = { 'x-api-key': apiKey };
+    } else {
+      this.rpcUrl = rpcUrl;
+    }
+
     this.confirmations = confirmations;
+
     this.tronWeb = new TronWeb({
-      fullHost: rpcUrl
+      fullHost: rpcUrl,
+      headers: this.authHeaders
     });
   }
 
@@ -24,14 +35,14 @@ export class TrxNetwork implements Network {
       return this.nativeAssetDecimals;
     }
 
-    const response = await fetch(`${this.rpcUrl}/wallet/triggerconstantcontract`, {
+    const response = await this.request(`/wallet/triggerconstantcontract`, {
       method: "POST",
       headers: {
         accept: "application/json",
         "content-type": "application/json"
       },
       body: JSON.stringify({ owner_address: tokenAddress, contract_address: tokenAddress, function_selector: "decimals()", parameter: "", visible: true })
-    }).then((res) => res.json());
+    });
 
     return parseInt(response.constant_result[0], 16);
   }
@@ -40,30 +51,30 @@ export class TrxNetwork implements Network {
     txHash: string,
     tokenAddress: string
   ): Promise<TransactionData | undefined> {
-    const currentBlock = await fetch(`${this.rpcUrl}/wallet/getblockbylatestnum`, {
+    const currentBlock = await this.request(`/wallet/getblockbylatestnum`, {
       method: "POST",
       headers: {
         accept: "application/json",
         "content-type": "application/json"
       },
       body: JSON.stringify({ num: 1 })
-    }).then((res) => res.json()).then((res) => res.block[0].block_header.raw_data.number);
+    }).then((res) => res.block[0].block_header.raw_data.number);
 
     // Native token - TRX
     if (tokenAddress === "0x0") {
-      const response = await fetch(`${this.rpcUrl}/wallet/gettransactionbyid`, {
+      const response = await this.request(`/wallet/gettransactionbyid`, {
         method: "POST",
         headers: {
           accept: "application/json",
           "content-type": "application/json"
         },
         body: JSON.stringify({ value: txHash })
-      }).then((res) => res.json());
+      });
 
       if (!response) return;
 
-      const blockNumber = await fetch(
-        `${this.rpcUrl}/wallet/gettransactioninfobyid`,
+      const blockNumber = await this.request(
+        `/wallet/gettransactioninfobyid`,
         {
           method: "POST",
           headers: {
@@ -72,7 +83,7 @@ export class TrxNetwork implements Network {
           },
           body: JSON.stringify({ value: txHash })
         }
-      ).then((res) => res.json()).then((res) => res.blockNumber);
+      ).then((res) => res.blockNumber);
 
       const confirmed = currentBlock - blockNumber >= this.confirmations;
 
@@ -98,8 +109,8 @@ export class TrxNetwork implements Network {
     }
 
     // ERC20 token
-    const response = await fetch(
-      `${this.rpcUrl}/wallet/gettransactioninfobyid`,
+    const response = await this.request(
+      `/wallet/gettransactioninfobyid`,
       {
         method: "POST",
         headers: {
@@ -108,9 +119,9 @@ export class TrxNetwork implements Network {
         },
         body: JSON.stringify({ value: txHash })
       }
-    ).then((res) => res.json());
+    );
 
-    if (!response) return;
+    if (!response || !response.receipt) return;
 
     const confirmed = currentBlock - response.blockNumber >= this.confirmations;
 
@@ -148,5 +159,23 @@ export class TrxNetwork implements Network {
     // Send USDT or other TRC20 tokens
     const contract = this.tronWeb.contract(abi.entrys, tokenAddress);
     return await contract.methods.transfer(to, Number(value)).send();
+  }
+
+  private async request(url: string, options?: RequestInit): Promise<any> {
+    const resp = await fetch(this.rpcUrl + url, {
+      ...(options || {}),
+      headers: { ...this.authHeaders, ...(options?.headers || {}) }
+    });
+
+    if (!resp.ok) {
+      throw new Error(`Request error ${resp.status}: ${(await resp.text()).substring(0, 1024)}`);
+    }
+
+    try {
+      return resp.json();
+    } catch (err) {
+      const text = await resp.text();
+      throw new Error(`Invalid json response ${resp.status}: ${text.substring(0, 1024)}...`);
+    }
   }
 }
