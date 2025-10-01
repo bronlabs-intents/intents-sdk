@@ -33,7 +33,7 @@ const networkBuilders = {
   "testCC": (cf: NetworkConfig) => new CantonNetwork(cf.rpcUrl, cf.scanApiUrl, cf.authUrl, cf.clientId, cf.clientSecret, cf.walletAddress),
 
   "BTC": (cf: NetworkConfig) => new BtcNetwork(cf.rpcUrl, 2),
-  "ETH": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 6),
+  "ETH": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 4),
   "OP": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 20),
   "TRX": (cf: NetworkConfig) => new TrxNetwork(cf.rpcUrl, 20),
   "SOL": (cf: NetworkConfig) => new SolNetwork(cf.rpcUrl, 20),
