@@ -16,21 +16,6 @@
   },
   {
     "inputs": [],
-    "name": "BC_INVALID_PRICE",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "BC_NOT_ENOUGH_OPERATION_AMOUNT",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "BC_TIMEOUT",
-    "type": "error"
-  },
-  {
-    "inputs": [],
     "name": "BC_TX_ALREADY_USED",
     "type": "error"
   },
@@ -154,6 +139,61 @@
     "type": "event"
   },
   {
+    "inputs": [],
+    "name": "broadcasterRegister",
+    "outputs": [
+      {
+        "internalType": "contract IBroadcasterRegister",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "_solverAddressOnBaseChain",
+        "type": "string"
+      }
+    ],
+    "name": "completeDelayedSlashSolver",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "name": "confirmationNetworkSettings",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "userConfirmationTime",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "solverConfirmationTime",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "components": [
@@ -221,6 +261,11 @@
         "internalType": "struct IOrderEngine.CreateOrderParams",
         "name": "_create",
         "type": "tuple"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_frontEndFee",
+        "type": "uint256"
       }
     ],
     "name": "createOrder",
@@ -236,7 +281,33 @@
   },
   {
     "inputs": [],
+    "name": "defaultSolverConfirmationTime",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "defaultSolverSettlementTime",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "defaultUserConfirmationTime",
     "outputs": [
       {
         "internalType": "uint256",
@@ -266,6 +337,11 @@
         "internalType": "string",
         "name": "_orderId",
         "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "_solverAddressOnBaseChain",
+        "type": "string"
       }
     ],
     "name": "executeSolverTimeout",
@@ -281,9 +357,40 @@
         "type": "string"
       }
     ],
-    "name": "executeUserTimeout",
+    "name": "executeUserConfirmationTimeout",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_networkId",
+        "type": "string"
+      }
+    ],
+    "name": "getNetworkSettings",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "userSettlementTime",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "solverSettlementTime",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct IOrderEngine.NetworkSettings",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -431,6 +538,68 @@
   {
     "inputs": [
       {
+        "internalType": "string",
+        "name": "_networkId",
+        "type": "string"
+      }
+    ],
+    "name": "getSolverConfirmationTime",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_networkId",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "_txHash",
+        "type": "string"
+      }
+    ],
+    "name": "getUsedTxHashes",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_networkId",
+        "type": "string"
+      }
+    ],
+    "name": "getUserConfirmationTime",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
         "name": "_oracleAggregator",
         "type": "address"
@@ -494,6 +663,25 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "name": "ordersFrontEndFee",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "owner",
     "outputs": [
@@ -536,53 +724,35 @@
   {
     "inputs": [
       {
-        "internalType": "string",
-        "name": "_orderId",
-        "type": "string"
-      },
-      {
-        "internalType": "string",
-        "name": "_newTxHash",
-        "type": "string"
-      }
-    ],
-    "name": "replaceSolverTransaction",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string",
-        "name": "_orderId",
-        "type": "string"
-      },
-      {
-        "internalType": "string",
-        "name": "_newTxHash",
-        "type": "string"
-      }
-    ],
-    "name": "replaceUserTransaction",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
         "internalType": "address",
-        "name": "_broadcaster",
+        "name": "_broadcasterRegister",
         "type": "address"
+      }
+    ],
+    "name": "setBroadcasterRegister",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_networkId",
+        "type": "string"
       },
       {
-        "internalType": "bool",
-        "name": "_isBroadcaster",
-        "type": "bool"
+        "internalType": "uint256",
+        "name": "_userConfirmationTime",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_solverConfirmationTime",
+        "type": "uint256"
       }
     ],
-    "name": "setBroadcaster",
+    "name": "setConfirmationNetworkSettings",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -591,11 +761,16 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "_defaultSolverSettlementTime",
+        "name": "_userConfirmationTime",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_solverConfirmationTime",
         "type": "uint256"
       }
     ],
-    "name": "setDefaultSolverSettlementTime",
+    "name": "setDefaultConfirmationTime",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -604,11 +779,16 @@
     "inputs": [
       {
         "internalType": "uint256",
-        "name": "_defaultUserSettlementTime",
+        "name": "_userSettlementTime",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_solverSettlementTime",
         "type": "uint256"
       }
     ],
-    "name": "setDefaultUserSettlementTime",
+    "name": "setDefaultSettlementTime",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -632,19 +812,6 @@
       }
     ],
     "name": "setNetworkSettings",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "_oracleAggregator",
-        "type": "address"
-      }
-    ],
-    "name": "setOracleAggregator",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -681,19 +848,6 @@
       }
     ],
     "name": "setOracleConfirmUserTx",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "_solverRegister",
-        "type": "address"
-      }
-    ],
-    "name": "setSolverRegister",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
