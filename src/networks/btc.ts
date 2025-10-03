@@ -31,7 +31,7 @@ export class BtcNetwork implements Network {
   private readonly rpcUrl: string;
   private readonly confirmations: number;
   private readonly nativeAssetDecimals: number = 8;
-  readonly retryDelay: number = 15000;
+  readonly retryDelay: number = 30000;
 
   constructor(rpcUrl: string, confirmations: number = 6) {
     this.rpcUrl = rpcUrl;
