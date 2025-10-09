@@ -337,11 +337,6 @@
         "internalType": "string",
         "name": "_orderId",
         "type": "string"
-      },
-      {
-        "internalType": "string",
-        "name": "_solverAddressOnBaseChain",
-        "type": "string"
       }
     ],
     "name": "executeSolverTimeout",
@@ -560,6 +555,25 @@
         "internalType": "string",
         "name": "_networkId",
         "type": "string"
+      }
+    ],
+    "name": "getSolverSettlementTime",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_networkId",
+        "type": "string"
       },
       {
         "internalType": "string",
@@ -587,6 +601,25 @@
       }
     ],
     "name": "getUserConfirmationTime",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_networkId",
+        "type": "string"
+      }
+    ],
+    "name": "getUserSettlementTime",
     "outputs": [
       {
         "internalType": "uint256",
