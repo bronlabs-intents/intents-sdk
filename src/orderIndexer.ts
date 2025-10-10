@@ -1,4 +1,4 @@
-import { ethers, LogDescription, EventLog } from 'ethers';
+import { ethers, LogDescription, EventLog, FetchRequest } from 'ethers';
 
 import { sleep, log } from './utils.js';
 import { EventQueue } from './eventQueue.js';
@@ -29,7 +29,14 @@ export class OrderIndexer {
 
   constructor(config: IntentsConfig) {
     this.config = config;
-    this.provider = new ethers.JsonRpcProvider(config.rpcUrl);
+
+    const req = new FetchRequest(config.rpcUrl);
+
+    if (config.rpcAuthToken) {
+      req.setHeader('x-api-key', config.rpcAuthToken);
+    }
+
+    this.provider = new ethers.JsonRpcProvider(req);
 
     this.orderEngine = initOrderEngine(
       config.orderEngineAddress,

@@ -1,5 +1,6 @@
 export interface NetworkConfig {
   rpcUrl: string;
+  rpcAuthToken?: string;
   walletAddress?: string
   walletPrivateKey?: string;
   scanApiUrl?: string;
@@ -10,6 +11,7 @@ export interface NetworkConfig {
 
 export interface IntentsConfig {
   rpcUrl: string;
+  rpcAuthToken?: string;
   orderEngineAddress: string;
   oracleAggregatorAddress?: string;
   oraclePrivateKey?: string;
