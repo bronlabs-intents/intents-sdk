@@ -1,0 +1,492 @@
+[
+  {
+    "inputs": [],
+    "name": "InvalidInitialization",
+    "type": "error"
+  },
+  {
+    "inputs": [],
+    "name": "NotInitializing",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableInvalidOwner",
+    "type": "error"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "account",
+        "type": "address"
+      }
+    ],
+    "name": "OwnableUnauthorizedAccount",
+    "type": "error"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "version",
+        "type": "uint64"
+      }
+    ],
+    "name": "Initialized",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousOwner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnershipTransferred",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "broadcasterRegister",
+    "outputs": [
+      {
+        "internalType": "contract IBroadcasterRegister",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "bronToken",
+    "outputs": [
+      {
+        "internalType": "contract IERC20",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "feeCalculator",
+    "outputs": [
+      {
+        "internalType": "contract IFeeCalculator",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      }
+    ],
+    "name": "getOrderFullResponse",
+    "outputs": [
+      {
+        "components": [
+          {
+            "components": [
+              {
+                "internalType": "enum IOrderEngine.OrderStatus",
+                "name": "status",
+                "type": "uint8"
+              },
+              {
+                "internalType": "address",
+                "name": "user",
+                "type": "address"
+              },
+              {
+                "internalType": "address",
+                "name": "solver",
+                "type": "address"
+              },
+              {
+                "components": [
+                  {
+                    "internalType": "string",
+                    "name": "networkId",
+                    "type": "string"
+                  },
+                  {
+                    "internalType": "string",
+                    "name": "tokenAddress",
+                    "type": "string"
+                  },
+                  {
+                    "internalType": "string",
+                    "name": "solverAddress",
+                    "type": "string"
+                  },
+                  {
+                    "internalType": "string",
+                    "name": "userTxHash",
+                    "type": "string"
+                  }
+                ],
+                "internalType": "struct IOrderEngine.BaseParams",
+                "name": "baseParams",
+                "type": "tuple"
+              },
+              {
+                "components": [
+                  {
+                    "internalType": "string",
+                    "name": "networkId",
+                    "type": "string"
+                  },
+                  {
+                    "internalType": "string",
+                    "name": "tokenAddress",
+                    "type": "string"
+                  },
+                  {
+                    "internalType": "string",
+                    "name": "userAddress",
+                    "type": "string"
+                  },
+                  {
+                    "internalType": "string",
+                    "name": "solverTxHash",
+                    "type": "string"
+                  }
+                ],
+                "internalType": "struct IOrderEngine.QuoteParams",
+                "name": "quoteParams",
+                "type": "tuple"
+              },
+              {
+                "components": [
+                  {
+                    "internalType": "uint256",
+                    "name": "baseAmount",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "quoteAmount",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "price_e18",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "maxPrice_e18",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "auctionDuration",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "uint256",
+                    "name": "orderValueInUSD_e18",
+                    "type": "uint256"
+                  },
+                  {
+                    "internalType": "address",
+                    "name": "liquidationReceiver",
+                    "type": "address"
+                  }
+                ],
+                "internalType": "struct IOrderEngine.PricingParams",
+                "name": "pricingParams",
+                "type": "tuple"
+              },
+              {
+                "internalType": "uint64",
+                "name": "updatedAt",
+                "type": "uint64"
+              },
+              {
+                "internalType": "uint64",
+                "name": "createdAt",
+                "type": "uint64"
+              }
+            ],
+            "internalType": "struct IOrderEngine.Order",
+            "name": "order",
+            "type": "tuple"
+          },
+          {
+            "internalType": "address",
+            "name": "insuranceToken",
+            "type": "address"
+          },
+          {
+            "internalType": "uint128",
+            "name": "liquidationPremium",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "solverFee",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "broadcasterFee",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "auctionTimeout",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "userSettlementTimeout",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "userConfirmationTimeout",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "solverSettlementTimeout",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "solverConfirmationTimeout",
+            "type": "uint128"
+          }
+        ],
+        "internalType": "struct IMetadata.OrderFullResponse",
+        "name": "response",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_bronToken",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_feeCalculator",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_orderEngine",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_solverRegister",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_oracleAggregator",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_broadcasterRegister",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_owner",
+        "type": "address"
+      }
+    ],
+    "name": "initialize",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "oracleAggregator",
+    "outputs": [
+      {
+        "internalType": "contract IOracleAggregator",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "orderEngine",
+    "outputs": [
+      {
+        "internalType": "contract IOrderEngine",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "owner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "renounceOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_broadcasterRegister",
+        "type": "address"
+      }
+    ],
+    "name": "setBroadcasterRegister",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_bronToken",
+        "type": "address"
+      }
+    ],
+    "name": "setBronToken",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_feeCalculator",
+        "type": "address"
+      }
+    ],
+    "name": "setFeeCalculator",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_oracleAggregator",
+        "type": "address"
+      }
+    ],
+    "name": "setOracleAggregator",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_orderEngine",
+        "type": "address"
+      }
+    ],
+    "name": "setOrderEngine",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_solverRegister",
+        "type": "address"
+      }
+    ],
+    "name": "setSolverRegister",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "solverRegister",
+    "outputs": [
+      {
+        "internalType": "contract ISolverRegister",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "transferOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]

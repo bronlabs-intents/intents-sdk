@@ -122,6 +122,14 @@ export function initSolverRegister(solverRegisterAddress: string, provider: ethe
   ) as ethers.Contract;
 }
 
+export function initMetadata(metadataAddress: string, provider: ethers.JsonRpcProvider | ethers.Signer): ethers.Contract {
+  return new ethers.Contract(
+    metadataAddress,
+    JSON.parse(fs.readFileSync(path.join(__dirname, '../abi/Metadata.json'), 'utf8')),
+    provider
+  ) as ethers.Contract;
+}
+
 export function printOrder(baseParams: BaseParams, quoteParams: QuoteParams, pricingParams: PricingParams): string {
   return JSON.stringify({
     baseParams: {
