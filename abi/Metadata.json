@@ -286,6 +286,16 @@
             "internalType": "uint128",
             "name": "solverConfirmationTimeout",
             "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "solverFeeBps",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "broadcasterFeeBps",
+            "type": "uint128"
           }
         ],
         "internalType": "struct IMetadata.OrderFullResponse",
