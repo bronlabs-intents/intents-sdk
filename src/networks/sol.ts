@@ -3,7 +3,7 @@ import { createTransferInstruction, getOrCreateAssociatedTokenAccount } from "@s
 import bs58 from "bs58";
 
 import { Network, TransactionData } from "./index.js";
-import { log } from "../utils.js";
+import { log, memoise } from "../utils.js";
 
 export class SolNetwork implements Network {
   private readonly rpcUrl: string;
@@ -23,19 +23,21 @@ export class SolNetwork implements Network {
       return this.nativeAssetDecimals;
     }
 
-    const { result } = await fetch(this.rpcUrl, {
-      method: 'POST',
-      body: JSON.stringify({
-        id: 1,
-        jsonrpc: "2.0",
-        method: "getAccountInfo",
-        params: [tokenAddress, {
-          "encoding": "jsonParsed"
-        }]
-      })
-    }).then((res) => res.json());
+    return memoise(`decimals-sol-${tokenAddress}`, 86400 * 1000, async () => {
+      const { result } = await fetch(this.rpcUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          id: 1,
+          jsonrpc: "2.0",
+          method: "getAccountInfo",
+          params: [tokenAddress, {
+            "encoding": "jsonParsed"
+          }]
+        })
+      }).then((res) => res.json());
 
-    return result.value.data.parsed.info.decimals;
+      return result.value.data.parsed.info.decimals;
+    });
   }
 
   async getTxData(

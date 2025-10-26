@@ -35,3 +35,46 @@ export async function expRetry<T>(fn: () => Promise<T>, maxRetries: number = 3, 
   throw Error(`Retry failed: maxRetries=${maxRetries}`);
 }
 
+type MemoEntry = { value?: unknown; expiresAt: number; promise?: Promise<unknown> };
+
+const __memoCache = new Map<string, MemoEntry>();
+
+const __gc = setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of __memoCache.entries()) {
+    if (v.expiresAt <= now && !v.promise) {
+      __memoCache.delete(k);
+    }
+  }
+}, 60_000);
+(__gc as any).unref?.();
+
+export function memoise<T>(key: string, durationMs: number, cb: () => Promise<T> | T): Promise<T> {
+  const now = Date.now();
+  const existing = __memoCache.get(key);
+
+  if (existing && existing.expiresAt > now && !existing.promise) {
+    return Promise.resolve(existing.value as T);
+  }
+
+  if (existing?.promise) {
+    return existing.promise as Promise<T>;
+  }
+
+  const expiresAt = now + durationMs;
+
+  const p = Promise.resolve()
+    .then(cb)
+    .then(v => {
+      __memoCache.set(key, { value: v, expiresAt });
+      return v;
+    })
+    .catch(e => {
+      __memoCache.delete(key);
+      throw e;
+    });
+
+  __memoCache.set(key, { promise: p, expiresAt });
+
+  return p;
+}

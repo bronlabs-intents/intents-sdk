@@ -2,7 +2,7 @@ import { fromHex } from "tron-format-address";
 import { TronWeb } from "tronweb";
 
 import { Network, TransactionData } from "./index.js";
-import { log } from "../utils.js";
+import { log, memoise } from "../utils.js";
 
 export class TrxNetwork implements Network {
   private readonly rpcUrl: string;
@@ -35,16 +35,18 @@ export class TrxNetwork implements Network {
       return this.nativeAssetDecimals;
     }
 
-    const response = await this.request(`/wallet/triggerconstantcontract`, {
-      method: "POST",
-      headers: {
-        accept: "application/json",
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({ owner_address: tokenAddress, contract_address: tokenAddress, function_selector: "decimals()", parameter: "", visible: true })
-    });
+    return memoise(`decimals-trx-${tokenAddress}`, 86400 * 1000, async () => {
+      const response = await this.request(`/wallet/triggerconstantcontract`, {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({ owner_address: tokenAddress, contract_address: tokenAddress, function_selector: "decimals()", parameter: "", visible: true })
+      });
 
-    return parseInt(response.constant_result[0], 16);
+      return parseInt(response.constant_result[0], 16);
+    });
   }
 
   async getTxData(

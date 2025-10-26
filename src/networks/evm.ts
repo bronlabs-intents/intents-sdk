@@ -1,7 +1,7 @@
 import { ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
-import { log } from '../utils.js';
+import { log, memoise } from '../utils.js';
 
 interface EthTransactionReceipt {
   status: string;
@@ -31,23 +31,25 @@ export class EvmNetwork implements Network {
       return this.nativeAssetDecimals;
     }
 
-    const { result } = await fetch(this.rpcUrl, {
-      method: 'POST',
-      body: JSON.stringify({
-        id: 1,
-        jsonrpc: "2.0",
-        method: "eth_call",
-        params: [
-          {
-            to: tokenAddress,
-            data: "0x313ce567"
-          },
-          "latest"
-        ]
-      })
-    }).then((res) => res.json());
+    return memoise(`decimals-${this.rpcUrl}-${tokenAddress}`, 86400 * 1000, async () => {
+      const { result } = await fetch(this.rpcUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          id: 1,
+          jsonrpc: "2.0",
+          method: "eth_call",
+          params: [
+            {
+              to: tokenAddress,
+              data: "0x313ce567"
+            },
+            "latest"
+          ]
+        })
+      }).then((res) => res.json());
 
-    return parseInt(result, 16);
+      return parseInt(result, 16);
+    });
   }
 
   async getTxData(txHash: string, tokenAddress: string): Promise<TransactionData | undefined> {
