@@ -2,7 +2,7 @@ import { fromHex } from "tron-format-address";
 import { TronWeb } from "tronweb";
 
 import { Network, TransactionData } from "./index.js";
-import { log, memoise } from "../utils.js";
+import { log, memoize } from "../utils.js";
 
 export class TrxNetwork implements Network {
   private readonly rpcUrl: string;
@@ -35,7 +35,7 @@ export class TrxNetwork implements Network {
       return this.nativeAssetDecimals;
     }
 
-    return memoise(`decimals-trx-${tokenAddress}`, 86400 * 1000, async () => {
+    return memoize(`decimals-trx-${tokenAddress}`, 86400 * 1000, async () => {
       const response = await this.request(`/wallet/triggerconstantcontract`, {
         method: "POST",
         headers: {

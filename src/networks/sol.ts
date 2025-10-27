@@ -3,7 +3,7 @@ import { createTransferInstruction, getOrCreateAssociatedTokenAccount } from "@s
 import bs58 from "bs58";
 
 import { Network, TransactionData } from "./index.js";
-import { log, memoise } from "../utils.js";
+import { log, memoize } from "../utils.js";
 
 export class SolNetwork implements Network {
   private readonly rpcUrl: string;
@@ -23,7 +23,7 @@ export class SolNetwork implements Network {
       return this.nativeAssetDecimals;
     }
 
-    return memoise(`decimals-sol-${tokenAddress}`, 86400 * 1000, async () => {
+    return memoize(`decimals-sol-${tokenAddress}`, 86400 * 1000, async () => {
       const { result } = await fetch(this.rpcUrl, {
         method: 'POST',
         body: JSON.stringify({

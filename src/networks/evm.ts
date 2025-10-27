@@ -1,7 +1,7 @@
 import { ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
-import { log, memoise } from '../utils.js';
+import { log, memoize } from '../utils.js';
 
 interface EthTransactionReceipt {
   status: string;
@@ -31,7 +31,7 @@ export class EvmNetwork implements Network {
       return this.nativeAssetDecimals;
     }
 
-    return memoise(`decimals-${this.rpcUrl}-${tokenAddress}`, 86400 * 1000, async () => {
+    return memoize(`decimals-${this.rpcUrl}-${tokenAddress}`, 86400 * 1000, async () => {
       const { result } = await fetch(this.rpcUrl, {
         method: 'POST',
         body: JSON.stringify({

@@ -49,7 +49,7 @@ const __gc = setInterval(() => {
 }, 60_000);
 (__gc as any).unref?.();
 
-export function memoise<T>(key: string, durationMs: number, cb: () => Promise<T> | T): Promise<T> {
+export function memoize<T>(key: string, durationMs: number, cb: () => Promise<T> | T): Promise<T> {
   const now = Date.now();
   const existing = __memoCache.get(key);
 
