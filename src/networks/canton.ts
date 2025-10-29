@@ -10,6 +10,7 @@ import { Big } from 'big.js';
 export class CantonNetwork implements Network {
   private readonly scanApiUrl: string;
   private readonly validatorApiUrl: string;
+  private readonly ledgerApiUrl?: string;
   private readonly authUrl: string;
 
   private readonly nativeAssetDecimals: number = 10;
@@ -24,9 +25,10 @@ export class CantonNetwork implements Network {
   private accessToken?: string;
   private accessTokenExpiresAt: number = 0;
 
-  constructor(validatorApiUrl: string, scanApiUrl?: string, authUrl?: string, clientId?: string, clientSecret?: string, senderPartyId?: string) {
+  constructor(validatorApiUrl: string, ledgerApiUrl?: string, scanApiUrl?: string, authUrl?: string, clientId?: string, clientSecret?: string, senderPartyId?: string) {
     this.validatorApiUrl = validatorApiUrl;
     this.scanApiUrl = scanApiUrl || validatorApiUrl;
+    this.ledgerApiUrl = ledgerApiUrl;
     this.authUrl = authUrl || 'mainnet-canton-mpch.eu.auth0.com';
 
     this.proxyAgent = process.env.HTTP_PROXY ? new HttpsProxyAgent(process.env.HTTP_PROXY, {
@@ -50,48 +52,51 @@ export class CantonNetwork implements Network {
   async getTxData(txHash: string, tokenAddress: string): Promise<TransactionData | undefined> {
     const updateId = txHash.split(':')[0];
 
-    const result = await fetch(`${this.scanApiUrl}/v2/updates/${updateId}`, {
-      method: 'GET',
-      agent: this.proxyAgent
+    const json = await this.nodeRequest({
+      method: 'POST',
+      node: this.ledgerApiUrl,
+      uri: `/v2/updates/update-by-id`,
+      body: {
+        updateId,
+        updateFormat: {
+          includeTransactions: {
+            transactionShape: 'TRANSACTION_SHAPE_LEDGER_EFFECTS',
+            eventFormat: {
+              filtersByParty: {},
+              filtersForAnyParty: {},
+              verbose: false
+            }
+          }
+        }
+      }
     });
 
-    if (!result.ok) {
-      throw new Error(`Couldn't get Canton tx data for ${txHash}: ${result.status} ${result.statusText}`);
-    }
-
-    const json = await result.json();
-
-    if (!json || json.error) {
+    if (!json || json.error || !json.update?.Transaction) {
       throw new Error(`Couldn't get Canton tx data for ${txHash}: ${json?.error || 'unknown error'}`);
     }
 
-    const events = Object.values(json.events_by_id ?? {}) as any[];
-    const transferCommandEvent = events.find(e => e.choice === 'TransferCommand_Send');
-    const transferFactoryEvent = events.find(e => e.choice === 'TransferFactory_Transfer');
+    const events = json.update.Transaction.value?.events as any[];
+    const transferFactoryEvent = events.find(e => e.ExercisedEvent?.choice === 'TransferFactory_Transfer');
 
-    const transferCommandResultTag = transferCommandEvent?.exercise_result?.result?.tag;
-    const transferFactoryResultTag = transferFactoryEvent?.exercise_result?.output?.tag;
+    const transferFactoryResultTag = transferFactoryEvent?.ExercisedEvent?.exerciseResult?.output?.tag;
 
     const isSuccess =
-      transferCommandResultTag === 'TransferCommandResultSuccess' ||
       transferFactoryResultTag === 'TransferInstructionResult_Completed';
 
     if (!isSuccess) {
-      const tag = transferCommandResultTag ?? transferFactoryResultTag ?? 'Unknown';
-      log.error(`Transaction ${txHash} failed: ${tag}`);
+      log.error(`Transaction ${txHash} failed: ${(transferFactoryResultTag ?? 'Unknown')}`);
 
       return {
-          to: "",
-          token: "",
-          amount: 0n,
-          confirmed: true
+        to: "",
+        token: "",
+        amount: 0n,
+        confirmed: true
       };
     }
 
-    const transfer: any = events
-      .find((e: any) => e.choice == 'AmuletRules_Transfer');
+    const transfer: any = events.find(e => e.ExercisedEvent?.choice === 'AmuletRules_Transfer');
 
-    const output = transfer?.choice_argument?.transfer?.outputs[0] || {
+    const output = transfer?.ExercisedEvent?.choiceArgument?.transfer?.outputs[0] || {
       receiver: '',
       amount: '0'
     };

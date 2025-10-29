@@ -42,7 +42,7 @@ const networkBuilders = {
   "HYPE": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 15),
   "TRX": (cf: NetworkConfig) => new TrxNetwork(cf.rpcUrl, 20),
   "SOL": (cf: NetworkConfig) => new SolNetwork(cf.rpcUrl, 20),
-  "CC": (cf: NetworkConfig) => new CantonNetwork(cf.rpcUrl, cf.scanApiUrl, cf.authUrl, cf.clientId, cf.clientSecret, cf.walletAddress)
+  "CC": (cf: NetworkConfig) => new CantonNetwork(cf.rpcUrl, cf.ledgerApiUrl, cf.scanApiUrl, cf.authUrl, cf.clientId, cf.clientSecret, cf.walletAddress)
 }
 
 export const initNetworks = (configs: { [key: string]: NetworkConfig }, filter?: (cfg: NetworkConfig) => boolean) =>
