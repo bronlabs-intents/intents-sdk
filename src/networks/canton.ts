@@ -75,6 +75,10 @@ export class CantonNetwork implements Network {
       throw new Error(`Couldn't get Canton tx data for ${txHash}: ${json?.error || 'unknown error'}`);
     }
 
+    if (json.update.Transaction.value?.updateId !== txHash) {
+      throw new Error(`Invalid Canton tx hash: order = ${txHash}, tx = ${json.update.Transaction.value?.updateId}`);
+    }
+
     const events = json.update.Transaction.value?.events as any[];
     const transferFactoryEvent = events.find(e => e.ExercisedEvent?.choice === 'TransferFactory_Transfer');
 
