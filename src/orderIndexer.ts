@@ -120,10 +120,6 @@ export class OrderIndexer {
             toBlock
           );
 
-          if (events.length > 0) {
-            log.info(`Found ${events.length} events between blocks ${fromBlock} and ${toBlock}`);
-          }
-
           for (const event of events) {
             const { args: { orderId, status } } = this.orderEngine.interface.parseLog({
               topics: event.topics,
@@ -160,8 +156,6 @@ export class OrderIndexer {
 
   private async processEventQueue(): Promise<void> {
     if (this.eventQueue.isEmpty() || this.processors.length === 0) return;
-
-    log.info(`Processing event queue with ${this.eventQueue.size()} events`);
 
     while (!this.eventQueue.isEmpty()) {
       const event = this.eventQueue.peek();
