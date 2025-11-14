@@ -46,7 +46,9 @@ export class CantonNetwork implements Network {
       return this.nativeAssetDecimals;
     }
 
-    throw new Error("Canton does not support tokens");
+    // TODO: implement token decimals lookup
+
+    return this.nativeAssetDecimals;
   }
 
   async getTxData(txHash: string, tokenAddress: string): Promise<TransactionData | undefined> {
