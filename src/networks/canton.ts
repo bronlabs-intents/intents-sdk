@@ -41,7 +41,7 @@ export class CantonNetwork implements Network {
     this.validatorApiUrl = validatorApiUrl;
     this.scanApiUrl = scanApiUrl || validatorApiUrl;
     this.ledgerApiUrl = ledgerApiUrl;
-    this.authUrl = authUrl || 'mainnet-canton-mpch.eu.auth0.com';
+    this.authUrl = authUrl || 'https://mainnet-canton-mpch.eu.auth0.com';
     this.daUtilitiesApiUrl = daUtilitiesApiUrl || 'https://api.utilities.digitalasset.com';
 
     this.proxyAgent = process.env.HTTP_PROXY ? new HttpsProxyAgent(process.env.HTTP_PROXY, {
@@ -59,18 +59,18 @@ export class CantonNetwork implements Network {
       return this.nativeAssetDecimals;
     }
 
-    const [tokenIssuer, _] = tokenAddress.split(':::')
+    const [tokenIssuer, tokenInstrumentId] = tokenAddress.split(':::')
 
-    const resp = await fetch(`${this.daUtilitiesApiUrl}/api/token-standard/v0/registrars/${tokenIssuer}/registry/metadata/v1/instruments`, {
+    const resp = await fetch(`${this.daUtilitiesApiUrl}/api/token-standard/v0/registrars/${tokenIssuer}/registry/metadata/v1/instruments/${tokenInstrumentId}`, {
       method: 'GET',
       agent: this.proxyAgent
     });
 
     if (!resp.ok) {
-      throw new Error(`Failed to get token metadata from ${this.daUtilitiesApiUrl}/api/token-standard/v0/registrars/${tokenIssuer}/registry/metadata/v1/instruments: ${resp.status} - ${await resp.text()}`);
+      throw new Error(`Failed to get token metadata from ${this.daUtilitiesApiUrl}/api/token-standard/v0/registrars/${tokenIssuer}/registry/metadata/v1/instruments/${tokenInstrumentId}: ${resp.status} - ${await resp.text()}`);
     }
 
-    return (await resp.json()).instruments[0].decimals;
+    return (await resp.json()).decimals;
   }
 
   async getTxData(txHash: string, tokenAddress: string): Promise<TransactionData | undefined> {
@@ -153,11 +153,11 @@ export class CantonNetwork implements Network {
     const arg = transferFactoryEvent?.ExercisedEvent?.choiceArgument?.transfer;
     const resultOutput = transferFactoryEvent?.ExercisedEvent?.exerciseResult?.output;
 
-    const contractId = resultOutput?.value?.transferInstructionCid
-    const receiver = arg?.transfer?.receiver
-    const amount = arg?.transfer?.amount
-    const txTokenAddress = arg?.transfer?.instrumentId?.admin + ":::" + arg?.instrumentId?.id
-    const tokenDecimals = await this.getDecimals(arg?.instrumentId?.admin);
+    const contractId = resultOutput?.value?.transferInstructionCid;
+    const receiver = arg?.receiver;
+    const amount = arg?.amount;
+    const txTokenAddress = arg?.instrumentId?.admin + ':::' + arg?.instrumentId?.id;
+    const tokenDecimals = await this.getDecimals(txTokenAddress);
 
     const eventsByContract = await this.nodeRequest({
       node: this.ledgerApiUrl,
@@ -170,8 +170,14 @@ export class CantonNetwork implements Network {
       retry: false
     });
 
-    const offset = eventsByContract.archived?.archivedEvent?.offset
-    const filters = await this.buildIdentifierFilter({ partyIds: [receiver] })
+    const offset = eventsByContract.archived?.archivedEvent?.offset;
+
+    if (offset === undefined) {
+      log.info(`No archived events found for ${txHash}, probably token transaction not accounted yet, return...`);
+      return;
+    }
+
+    const filters = await this.buildIdentifierFilter({ partyIds: [receiver] });
 
     const receiverUpdates = await this.nodeRequest({
       node: this.ledgerApiUrl,
@@ -337,7 +343,7 @@ export class CantonNetwork implements Network {
       return this.accessToken;
     }
 
-    const response = await fetch(`https://${this.authUrl}/oauth/token`, {
+    const response = await fetch(`${this.authUrl}/oauth/token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -351,7 +357,7 @@ export class CantonNetwork implements Network {
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to get access token from https://${this.authUrl}/oauth/token: ${response.status} - ${await response.text()}`);
+      throw new Error(`Failed to get access token from ${this.authUrl}/oauth/token: ${response.status} - ${await response.text()}`);
     }
 
     const data = await response.json();
