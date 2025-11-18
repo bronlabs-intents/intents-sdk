@@ -8,6 +8,7 @@ export interface NetworkConfig {
   authUrl?: string;
   clientId?: string;
   clientSecret?: string;
+  daUtilitiesApiUrl?: string;
 }
 
 export interface IntentsConfig {
