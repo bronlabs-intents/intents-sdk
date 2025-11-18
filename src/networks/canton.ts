@@ -36,7 +36,7 @@ export class CantonNetwork implements Network {
     clientId?: string,
     clientSecret?: string,
     senderPartyId?: string,
-    daUtilitiesApiUrl?: string,
+    daUtilitiesApiUrl?: string
   ) {
     this.validatorApiUrl = validatorApiUrl;
     this.scanApiUrl = scanApiUrl || validatorApiUrl;
@@ -59,14 +59,15 @@ export class CantonNetwork implements Network {
       return this.nativeAssetDecimals;
     }
 
-    const [tokenAdmin, _] = tokenAddress.split(':::')
-    const resp = await fetch(`${this.daUtilitiesApiUrl}/api/token-standard/v0/registrars/${tokenAdmin}/registry/metadata/v1/instruments`, {
+    const [tokenIssuer, _] = tokenAddress.split(':::')
+
+    const resp = await fetch(`${this.daUtilitiesApiUrl}/api/token-standard/v0/registrars/${tokenIssuer}/registry/metadata/v1/instruments`, {
       method: 'GET',
       agent: this.proxyAgent
     });
 
     if (!resp.ok) {
-      throw new Error(`Failed to get token metadata from ${this.daUtilitiesApiUrl}/api/token-standard/v0/registrars/${tokenAdmin}/registry/metadata/v1/instruments: ${resp.status} - ${await resp.text()}`);
+      throw new Error(`Failed to get token metadata from ${this.daUtilitiesApiUrl}/api/token-standard/v0/registrars/${tokenIssuer}/registry/metadata/v1/instruments: ${resp.status} - ${await resp.text()}`);
     }
 
     return (await resp.json()).instruments[0].decimals;
@@ -78,7 +79,7 @@ export class CantonNetwork implements Network {
     const baseEventFormat = {
       filtersByParty: {},
       filtersForAnyParty: {},
-      verbose: false,
+      verbose: false
     };
 
     const fetchUpdate = (id: string) =>
@@ -91,10 +92,10 @@ export class CantonNetwork implements Network {
           updateFormat: {
             includeTransactions: {
               transactionShape: 'TRANSACTION_SHAPE_LEDGER_EFFECTS',
-              eventFormat: baseEventFormat,
-            },
-          },
-        },
+              eventFormat: baseEventFormat
+            }
+          }
+        }
       });
 
     const json = await fetchUpdate(updateId);
@@ -145,66 +146,66 @@ export class CantonNetwork implements Network {
         amount,
         confirmed: true
       };
+    }
+
+    // tokens
+
+    const arg = transferFactoryEvent?.ExercisedEvent?.choiceArgument?.transfer;
+    const resultOutput = transferFactoryEvent?.ExercisedEvent?.exerciseResult?.output;
+
+    const contractId = resultOutput?.value?.transferInstructionCid
+    const receiver = arg?.transfer?.receiver
+    const amount = arg?.transfer?.amount
+    const txTokenAddress = arg?.transfer?.instrumentId?.admin + ":::" + arg?.instrumentId?.id
+    const tokenDecimals = await this.getDecimals(arg?.instrumentId?.admin);
+
+    const eventsByContract = await this.nodeRequest({
+      node: this.ledgerApiUrl,
+      method: 'POST',
+      uri: `/v2/events/events-by-contract-id`,
+      body: {
+        contractId,
+        eventFormat: { ...baseEventFormat, verbose: true }
+      },
+      retry: false
+    });
+
+    const offset = eventsByContract.archived?.archivedEvent?.offset
+    const filters = await this.buildIdentifierFilter({ partyIds: [receiver] })
+
+    const receiverUpdates = await this.nodeRequest({
+      node: this.ledgerApiUrl,
+      method: 'POST',
+      uri: `/v2/updates?limit=100&stream_idle_timeout_ms=10000`,
+      body: {
+        filter: filters,
+        verbose: false,
+        beginExclusive: offset - 1,
+        endInclusive: offset
+      },
+      retry: false
+    });
+
+    const receiverUpdateId = receiverUpdates?.[0]?.update?.Transaction?.value?.updateId;
+
+    const result = await fetchUpdate(receiverUpdateId);
+    const resultEvents = result.update.Transaction.value?.events as any[];
+    const resultAcceptEvent = resultEvents.find(e => e.ExercisedEvent?.choice === 'TransferInstruction_Accept');
+
+    if (resultAcceptEvent?.ExercisedEvent?.exerciseResult?.output?.tag === "TransferInstructionResult_Completed") {
+      return {
+        to: receiver,
+        token: txTokenAddress,
+        amount: ethers.parseUnits(amount, tokenDecimals),
+        confirmed: true
+      };
     } else {
-
-      const arg = transferFactoryEvent?.ExercisedEvent?.choiceArgument?.transfer;
-      const resultOutput = transferFactoryEvent?.ExercisedEvent?.exerciseResult?.output;
-
-      const contractId = resultOutput?.value?.transferInstructionCid
-      const receiver = arg?.transfer?.receiver
-      const amount = arg?.transfer?.amount
-      const tokenAddress = arg?.transfer?.instrumentId?.admin + ":::" + arg?.instrumentId?.id
-      const tokenDecimals = await this.getDecimals(arg?.instrumentId?.admin);
-
-      const eventsByContract = await this.nodeRequest({
-        node: this.ledgerApiUrl,
-        method: 'POST',
-        uri: `/v2/events/events-by-contract-id`,
-        body: {
-          contractId,
-          eventFormat: { ...baseEventFormat, verbose: true },
-        },
-        retry: false,
-      });
-
-      const offset = eventsByContract.archived?.archivedEvent?.offset
-      const filters = await this.buildIdentifierFilter({ partyIds: [receiver] })
-
-      const receiverUpdates = await this.nodeRequest({
-        node: this.ledgerApiUrl,
-        method: 'POST',
-        uri: `/v2/updates?limit=100&stream_idle_timeout_ms=10000`,
-        body: {
-          filter: filters,
-          verbose: false,
-          beginExclusive: offset - 1,
-          endInclusive: offset,
-        },
-        retry: false,
-      });
-
-      const receiverUpdateId = receiverUpdates?.[0]?.update?.Transaction?.value?.updateId;
-
-      const result = await fetchUpdate(receiverUpdateId);
-      const resultEvents = result.update.Transaction.value?.events as any[];
-      const resultAcceptEvent = resultEvents.find(e => e.ExercisedEvent?.choice === 'TransferInstruction_Accept');
-
-      if (resultAcceptEvent?.ExercisedEvent?.exerciseResult?.output?.tag === "TransferInstructionResult_Completed") {
-        return {
-          to: receiver,
-          token: tokenAddress,
-          amount: ethers.parseUnits(amount, tokenDecimals),
-          confirmed: true
-        };
-      } else {
-        return {
-          to: "",
-          token: "",
-          amount: 0n,
-          confirmed: true
-        };
-      }
-
+      return {
+        to: "",
+        token: "",
+        amount: 0n,
+        confirmed: true
+      };
     }
   }
 
@@ -305,8 +306,8 @@ export class CantonNetwork implements Network {
               includeInterfaceView: true,
               includeCreatedEventBlob: false
             }
-          },
-        },
+          }
+        }
       });
     }
     for (const iface of interfaceIds) {
@@ -316,10 +317,10 @@ export class CantonNetwork implements Network {
             value: {
               interfaceId: iface,
               includeInterfaceView: true,
-              includeCreatedEventBlob: false,
-            },
-          },
-        },
+              includeCreatedEventBlob: false
+            }
+          }
+        }
       });
     }
 
