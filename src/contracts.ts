@@ -149,9 +149,7 @@ export function printOrder(baseParams: BaseParams, quoteParams: QuoteParams, pri
       quoteAmount: pricingParams.quoteAmount.toString(),
       price_e18: pricingParams.price_e18.toString(),
       maxPrice_e18: pricingParams.maxPrice_e18.toString(),
-      auctionDuration: pricingParams.auctionDuration.toString(),
-      orderValueInUSD_e18: pricingParams.orderValueInUSD_e18.toString(),
-      liquidationReceiver: pricingParams.liquidationReceiver
+      orderValueInUSD_e18: pricingParams.orderValueInUSD_e18.toString()
     }
-  });
+  }, null, 2);
 }
