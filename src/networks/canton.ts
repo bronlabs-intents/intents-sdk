@@ -115,6 +115,11 @@ export class CantonNetwork implements Network {
 
     const transferFactoryResultTag = transferFactoryEvent?.ExercisedEvent?.exerciseResult?.output?.tag;
 
+    if (!transferFactoryResultTag) {
+      log.error(`Transaction ${txHash} has missing transferFactoryResultTag: ${JSON.stringify(txValue)}`);
+      return
+    }
+
     const isSuccess = tokenAddress === '0x0' ?
       transferFactoryResultTag === 'TransferInstructionResult_Completed' :
       transferFactoryResultTag === 'TransferInstructionResult_Pending';
@@ -198,7 +203,14 @@ export class CantonNetwork implements Network {
     const resultEvents = result.update.Transaction.value?.events as any[];
     const resultAcceptEvent = resultEvents.find(e => e.ExercisedEvent?.choice === 'TransferInstruction_Accept');
 
-    if (resultAcceptEvent?.ExercisedEvent?.exerciseResult?.output?.tag === "TransferInstructionResult_Completed") {
+    const tokenResultTag = resultAcceptEvent?.ExercisedEvent?.exerciseResult?.output?.tag
+
+    if (!tokenResultTag) {
+      log.error(`Transaction ${txHash} has missing tokenResultTag: ${JSON.stringify(resultAcceptEvent)}`);
+      return
+    }
+
+    if (tokenResultTag === "TransferInstructionResult_Completed") {
       return {
         to: receiver,
         token: txTokenAddress,
@@ -206,6 +218,8 @@ export class CantonNetwork implements Network {
         confirmed: true
       };
     } else {
+      log.error(`Transaction ${txHash} has wrong tokenResultTag: ${tokenResultTag}`);
+
       return {
         to: "",
         token: "",
