@@ -166,10 +166,10 @@ export class CantonNetwork implements Network {
         throw new Error(`Couldn't get Canton tx data for ${txHash}: ${initialJson?.error || 'unknown error'}`);
       }
 
-      const initialTxValue = json.update.Transaction.value;
+      const initialTxValue = initialJson.update.Transaction.value;
 
-      if (initialTxValue.updateId !== initialTx) {
-        throw new Error(`Invalid Canton tx hash: order = ${initialTx}, tx = ${initialJson.update.Transaction.value?.updateId}`);
+      if (initialTxValue?.updateId !== initialTx) {
+        throw new Error(`Invalid Canton tx hash: order = ${initialTx}, tx = ${initialTxValue?.updateId}`);
       }
 
       const initialEvents = initialTxValue.events as any[];
