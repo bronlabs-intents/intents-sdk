@@ -111,87 +111,13 @@ export class CantonNetwork implements Network {
     }
 
     const events = txValue.events as any[];
-    const transferFactoryEvent = events.find(e => ['TransferInstruction_Accept', 'TransferFactory_Transfer'].includes(e.ExercisedEvent?.choice));
+    const transferFactoryEvent = events.find(e => e.ExercisedEvent?.choice === 'TransferFactory_Transfer');
 
     const transferFactoryResultTag = transferFactoryEvent?.ExercisedEvent?.exerciseResult?.output?.tag;
 
     if (!transferFactoryResultTag) {
       log.error(`Transaction ${txHash} has missing transferFactoryResultTag: ${JSON.stringify(txValue)}`);
       return
-    }
-
-    // accept transaction is set to oracle, so we should check origin transaction
-    if (transferFactoryEvent.ExercisedEvent?.choice === 'TransferInstruction_Accept') {
-      const eventsByContract = await this.nodeRequest({
-        node: this.ledgerApiUrl,
-        method: 'POST',
-        uri: `/v2/events/events-by-contract-id`,
-        body: {
-          contractId: transferFactoryEvent.ExercisedEvent.contractId,
-          eventFormat: {...baseEventFormat, verbose: true}
-        },
-        retry: false
-      });
-
-      // take created offset
-      const offset = eventsByContract.created?.createdEvent?.offset;
-
-      if (offset === undefined) {
-        log.info(`No created events found for ${txHash}, probably token transaction not accounted yet, return...`);
-        return;
-      }
-
-      const accepter = transferFactoryEvent.ExercisedEvent.actingParties[0];
-
-      const filters = await this.buildIdentifierFilter({partyIds: [accepter]});
-
-      const initialUpdate = await this.nodeRequest({
-        node: this.ledgerApiUrl,
-        method: 'POST',
-        uri: `/v2/updates?limit=100&stream_idle_timeout_ms=10000`,
-        body: {
-          filter: filters,
-          verbose: false,
-          beginExclusive: offset - 1,
-          endInclusive: offset
-        },
-        retry: false
-      });
-
-      const initialTx = initialUpdate?.[0]?.update?.Transaction?.value?.updateId;
-
-      const initialJson = await fetchUpdate(initialTx);
-
-      if (!initialJson || initialJson.error || !initialJson.update?.Transaction) {
-        throw new Error(`Couldn't get Canton tx data for ${txHash}: ${initialJson?.error || 'unknown error'}`);
-      }
-
-      const initialTxValue = json.update.Transaction.value;
-
-      if (initialTxValue.updateId !== initialTx) {
-        throw new Error(`Invalid Canton tx hash: order = ${initialTx}, tx = ${initialJson.update.Transaction.value?.updateId}`);
-      }
-
-      const initialEvents = initialTxValue.events as any[];
-      const initialTransferEvent = initialEvents.find(e => ['TransferFactory_Transfer'].includes(e.ExercisedEvent?.choice));
-
-      if (!initialTransferEvent) {
-        log.error(`Transaction ${txHash} has no TransferFactory_Transfer event: ${JSON.stringify(events)}`);
-        return;
-      }
-
-      const arg = initialTransferEvent?.ExercisedEvent?.choiceArgument?.transfer;
-      const receiver = arg?.receiver;
-      const amount = arg?.amount;
-      const txTokenAddress = arg?.instrumentId?.admin + ':::' + arg?.instrumentId?.id;
-      const tokenDecimals = await this.getDecimals(txTokenAddress);
-
-      return {
-        to: receiver,
-        token: txTokenAddress,
-        amount: ethers.parseUnits(amount, tokenDecimals),
-        confirmed: true
-      };
     }
 
     const isSuccess = tokenAddress === '0x0' ?
@@ -244,7 +170,7 @@ export class CantonNetwork implements Network {
       uri: `/v2/events/events-by-contract-id`,
       body: {
         contractId,
-        eventFormat: {...baseEventFormat, verbose: true}
+        eventFormat: { ...baseEventFormat, verbose: true }
       },
       retry: false
     });
@@ -256,7 +182,7 @@ export class CantonNetwork implements Network {
       return;
     }
 
-    const filters = await this.buildIdentifierFilter({partyIds: [receiver]});
+    const filters = await this.buildIdentifierFilter({ partyIds: [receiver] });
 
     const receiverUpdates = await this.nodeRequest({
       node: this.ledgerApiUrl,
@@ -339,7 +265,7 @@ export class CantonNetwork implements Network {
       }
     });
 
-    const {update_id} = await this.nodeRequest({
+    const { update_id } = await this.nodeRequest({
       method: 'POST',
       uri: `/v0/admin/external-party/transfer-preapproval/submit-send`,
       body: {
@@ -371,7 +297,7 @@ export class CantonNetwork implements Network {
       }
 
       const event: any = Object.values(json.events_by_id)
-      .find((e: any) => e.event_type == 'exercised_event' && e.choice == 'ExternalPartyAmuletRules_CreateTransferCommand');
+        .find((e: any) => e.event_type == 'exercised_event' && e.choice == 'ExternalPartyAmuletRules_CreateTransferCommand');
 
       const transferCommandCid = event?.exercise_result?.transferCommandCid;
 
@@ -388,7 +314,7 @@ export class CantonNetwork implements Network {
     templateIds?: string[];
     interfaceIds?: string[];
   }) {
-    const {partyIds, templateIds = [], interfaceIds = []} = opts;
+    const { partyIds, templateIds = [], interfaceIds = [] } = opts;
     const cumulative: any[] = [];
 
     for (const t of templateIds) {
@@ -420,10 +346,10 @@ export class CantonNetwork implements Network {
 
     if (partyIds && partyIds.length) {
       const filtersByParty: Record<string, any> = {};
-      for (const p of partyIds) filtersByParty[p] = {cumulative};
-      return {filtersByParty};
+      for (const p of partyIds) filtersByParty[p] = { cumulative };
+      return { filtersByParty };
     }
-    return {filtersForAnyParty: {cumulative}};
+    return { filtersForAnyParty: { cumulative } };
   }
 
   private async getAccessToken(): Promise<string> {
@@ -456,7 +382,7 @@ export class CantonNetwork implements Network {
     return this.accessToken!;
   }
 
-  private async nodeRequest({method, uri, body = undefined, node = undefined, retry = true}: {
+  private async nodeRequest({ method, uri, body = undefined, node = undefined, retry = true }: {
     method: string,
     uri: string,
     body?: any,
