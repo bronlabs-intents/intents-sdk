@@ -3,7 +3,7 @@ import { log, sleep } from './utils.js';
 
 type OrderEvent = {
   orderId: string;
-  status: bigint;
+  status: number;
   attempts?: number;
   nextAttemptAt?: number;
 };
@@ -17,7 +17,7 @@ export abstract class OrderProcessor {
     this.processDelayedQueue().then(() => undefined);
   }
 
-  abstract process(orderId: string, status: bigint): Promise<void>;
+  abstract process(orderId: string, status: number): Promise<void>;
 
   async stop(): Promise<void> {
     if (!this.isRunning) {

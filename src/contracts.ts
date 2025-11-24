@@ -44,7 +44,7 @@ interface PricingParams {
 }
 
 export interface Order {
-  status: bigint;
+  status: number;
   user: string;
   solver: string;
   baseParams: BaseParams;

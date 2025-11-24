@@ -1,4 +1,5 @@
 import { ethers, LogDescription, EventLog, FetchRequest } from 'ethers';
+import WebSocket from 'ws';
 
 import { sleep, log } from './utils.js';
 import { EventQueue } from './eventQueue.js';
@@ -9,7 +10,7 @@ export interface OrderStatusChangedEvent {
   type: 'OrderStatusChanged';
   data: {
     orderId: string;
-    status: bigint;
+    status: number;
   };
   event: ethers.EventLog;
   retries: number;
@@ -145,10 +146,22 @@ export class OrderIndexer {
   }
 
   private async startWebSocketListener(): Promise<void> {
-    const wsUrl = this.config.rpcUrl.replace(/^https?:\/\//, 'wss://');
-
     try {
-      this.wsProvider = new ethers.WebSocketProvider(wsUrl, undefined, { staticNetwork: true });
+      const ws = new WebSocket(this.config.rpcUrl.replace(/^https?:\/\//, 'wss://'));
+
+      ws.on('error', error => {
+        if (!this.isRunning) return;
+        log.error('WebSocket transport error:', error);
+        this.reconnectWebSocket();
+      });
+
+      ws.on('close', (code, reason) => {
+        if (!this.isRunning) return;
+        log.warn(`WebSocket transport closed: ${code} ${reason?.toString?.() ?? ''}`);
+        this.reconnectWebSocket();
+      });
+
+      this.wsProvider = new ethers.WebSocketProvider(ws, undefined, { staticNetwork: true });
 
       void this.wsProvider.on('block', (blockNumber: number) => {
         if (!this.isRunning) return;
@@ -252,6 +265,7 @@ export class OrderIndexer {
           await this.processBlockRange(this.lastProcessedBlock + 1, this.targetBlock);
         } catch (error) {
           log.error('Error in catchup worker:', error);
+          this.reconnectWebSocket();
           await sleep(5000);
         }
       } else {
@@ -295,7 +309,7 @@ export class OrderIndexer {
             type: 'OrderStatusChanged',
             data: {
               orderId,
-              status: BigInt(status)
+              status: Number(status)
             },
             event: event as EventLog,
             retries: 0
