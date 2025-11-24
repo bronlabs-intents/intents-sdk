@@ -22,7 +22,7 @@ export class EvmNetwork implements Network {
 
   constructor(rpcUrl: string, confirmations: number = 6) {
     this.rpcUrl = rpcUrl;
-    this.provider = new ethers.JsonRpcProvider(rpcUrl);
+    this.provider = new ethers.JsonRpcProvider(rpcUrl, undefined, { staticNetwork: true });
     this.confirmations = confirmations;
   }
 
