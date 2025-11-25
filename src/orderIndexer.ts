@@ -23,15 +23,14 @@ export class OrderIndexer {
   private readonly config: IntentsConfig;
   private readonly httpProvider: ethers.JsonRpcProvider;
   private wsProvider: ethers.WebSocketProvider | null;
+  private wsOrderEngine: ethers.Contract | null;
   private readonly orderEngine: OrderEngineContract & ethers.Contract;
   private readonly eventQueue: EventQueue<OrderStatusChangedEvent>;
   private readonly processors: EventProcessor[];
   private isRunning: boolean;
   private lastProcessedBlock: number;
   private readonly rpcTimeoutMs: number;
-  private targetBlock: number;
   private isProcessingQueue: boolean;
-  private isWorkerRunning: boolean;
   private reconnectTimeout: NodeJS.Timeout | null;
   private healthCheckInterval: NodeJS.Timeout | null;
 
@@ -45,7 +44,11 @@ export class OrderIndexer {
     }
 
     this.httpProvider = new ethers.JsonRpcProvider(req, undefined, { staticNetwork: true });
+
+    void this.httpProvider.on('debug', this.debugTrace('RPC'));
+
     this.wsProvider = null;
+    this.wsOrderEngine = null;
 
     this.orderEngine = initOrderEngine(
       config.orderEngineAddress,
@@ -56,9 +59,7 @@ export class OrderIndexer {
     this.processors = [];
     this.isRunning = false;
     this.lastProcessedBlock = 0;
-    this.targetBlock = 0;
     this.isProcessingQueue = false;
-    this.isWorkerRunning = false;
     this.reconnectTimeout = null;
     this.rpcTimeoutMs = 15_000;
     this.healthCheckInterval = null;
@@ -76,12 +77,10 @@ export class OrderIndexer {
 
     this.isRunning = true;
 
-    log.info(`Starting indexer from offset ${this.config.startBlockOffset}`);
+    log.info(`Starting indexer with offset -${this.config.startBlockOffset} blocks`);
 
     try {
-      await this.processHistoricalEvents();
       await this.startWebSocketListener();
-      this.startCatchupWorker();
     } catch (error) {
       log.error('Error starting indexer:', error);
       this.isRunning = false;
@@ -108,6 +107,11 @@ export class OrderIndexer {
       this.healthCheckInterval = null;
     }
 
+    if (this.wsOrderEngine) {
+      void this.wsOrderEngine.removeAllListeners();
+      this.wsOrderEngine = null;
+    }
+
     if (this.wsProvider) {
       void this.wsProvider.removeAllListeners();
       void this.wsProvider.destroy();
@@ -117,13 +121,13 @@ export class OrderIndexer {
     const maxWaitTime = 30000;
     const startTime = Date.now();
 
-    while ((this.isWorkerRunning || !this.eventQueue.isEmpty()) && (Date.now() - startTime) < maxWaitTime) {
-      log.info(`Waiting for worker and ${this.eventQueue.size()} events to complete before stopping`);
+    while (!this.eventQueue.isEmpty() && (Date.now() - startTime) < maxWaitTime) {
+      log.info(`Waiting for ${this.eventQueue.size()} events to complete before stopping`);
       await sleep(1000);
     }
 
-    if (this.isWorkerRunning || !this.eventQueue.isEmpty()) {
-      log.warn(`Stopping indexer with worker still running or ${this.eventQueue.size()} unprocessed events after timeout`);
+    if (!this.eventQueue.isEmpty()) {
+      log.warn(`Stopping indexer with ${this.eventQueue.size()} unprocessed events after timeout`);
     }
 
     log.info('Indexer stopped');
@@ -138,14 +142,13 @@ export class OrderIndexer {
 
     if (currentBlock > this.lastProcessedBlock) {
       log.info(`Processing historical events from ${this.lastProcessedBlock + 1} to ${currentBlock}`);
-      this.targetBlock = currentBlock;
       await this.processBlockRange(this.lastProcessedBlock + 1, currentBlock);
-    } else {
-      this.targetBlock = this.lastProcessedBlock;
     }
   }
 
   private async startWebSocketListener(): Promise<void> {
+    await this.processHistoricalEvents(); // Process historical events first
+
     try {
       const ws = new WebSocket(this.config.rpcUrl.replace(/^https?:\/\//, 'wss://'));
 
@@ -163,15 +166,32 @@ export class OrderIndexer {
 
       this.wsProvider = new ethers.WebSocketProvider(ws, undefined, { staticNetwork: true });
 
-      void this.wsProvider.on('block', (blockNumber: number) => {
+      void this.wsProvider.on('debug', this.debugTrace('WS'));
+
+      this.wsOrderEngine = new ethers.Contract(
+        this.config.orderEngineAddress,
+        this.orderEngine.interface,
+        this.wsProvider
+      );
+
+      void this.wsOrderEngine.on('OrderStatusChanged', async (orderId: string, status: bigint, event: EventLog) => {
         if (!this.isRunning) return;
 
-        if (blockNumber > this.targetBlock) {
-          this.targetBlock = blockNumber;
-          log.debug(`New target block: ${blockNumber}, current: ${this.lastProcessedBlock}`);
-        }
+        this.eventQueue.add({
+          type: 'OrderStatusChanged',
+          data: {
+            orderId,
+            status: Number(status)
+          },
+          event,
+          retries: 0
+        });
 
-        this.startCatchupWorker();
+        this.lastProcessedBlock = event.blockNumber;
+
+        if (this.isRunning && !this.eventQueue.isEmpty()) {
+          await this.processEventQueue();
+        }
       });
 
       this.monitorWebSocketHealth();
@@ -179,43 +199,33 @@ export class OrderIndexer {
       log.info('WebSocket listener started');
     } catch (error) {
       log.error('Error starting WebSocket:', error);
-      this.reconnectWebSocket();
+      await this.reconnectWebSocket();
     }
   }
 
   private monitorWebSocketHealth(): void {
     this.healthCheckInterval = setInterval(async () => {
-      if (!this.isRunning) {
+      if (!this.isRunning || !this.wsProvider) {
         if (this.healthCheckInterval) {
           clearInterval(this.healthCheckInterval);
           this.healthCheckInterval = null;
         }
-        return;
-      }
-
-      if (!this.wsProvider) {
-        if (this.healthCheckInterval) {
-          clearInterval(this.healthCheckInterval);
-          this.healthCheckInterval = null;
-        }
-        this.reconnectWebSocket();
         return;
       }
 
       try {
-        await this.withTimeout(this.wsProvider.getBlockNumber(), 'wsProvider.getBlockNumber');
+        await this.withTimeout(
+          this.wsProvider.getBlockNumber(),
+          'wsProvider.getBlockNumber (health check)'
+        );
       } catch (error) {
-        log.error('WebSocket health check failed:', error);
-        if (this.healthCheckInterval) {
-          clearInterval(this.healthCheckInterval);
-          this.healthCheckInterval = null;
-        }
-        this.reconnectWebSocket();
+        log.warn('WebSocket health check failed:', error);
+        void this.reconnectWebSocket();
       }
-    }, 30000);
+    }, 60_000);
   }
 
-  private reconnectWebSocket(): void {
+  private async reconnectWebSocket(): Promise<void> {
     if (!this.isRunning || this.reconnectTimeout) return;
 
     if (this.healthCheckInterval) {
@@ -223,9 +233,14 @@ export class OrderIndexer {
       this.healthCheckInterval = null;
     }
 
+    if (this.wsOrderEngine) {
+      void this.wsOrderEngine.removeAllListeners();
+      this.wsOrderEngine = null;
+    }
+
     if (this.wsProvider) {
-      void this.wsProvider.removeAllListeners();
-      void this.wsProvider.destroy();
+      await this.wsProvider.removeAllListeners();
+      await this.wsProvider.destroy();
       this.wsProvider = null;
     }
 
@@ -237,44 +252,12 @@ export class OrderIndexer {
       if (this.isRunning) {
         try {
           await this.startWebSocketListener();
-          this.startCatchupWorker();
         } catch (error) {
           log.error('Error reconnecting WebSocket:', error);
-          this.reconnectWebSocket();
+          await this.reconnectWebSocket();
         }
       }
     }, 5000);
-  }
-
-  private startCatchupWorker(): void {
-    if (this.isWorkerRunning) return;
-
-    this.isWorkerRunning = true;
-
-    this.catchupWorkerLoop().catch(error => {
-      log.error('Catchup worker error:', error);
-      this.isWorkerRunning = false;
-      this.reconnectWebSocket();
-    });
-  }
-
-  private async catchupWorkerLoop(): Promise<void> {
-    while (this.isRunning) {
-      if (this.targetBlock > this.lastProcessedBlock) {
-        try {
-          await this.processBlockRange(this.lastProcessedBlock + 1, this.targetBlock);
-        } catch (error) {
-          log.error('Error in catchup worker:', error);
-          this.reconnectWebSocket();
-          await sleep(5000);
-        }
-      } else {
-        await sleep(300);
-      }
-    }
-
-    this.isWorkerRunning = false;
-    log.info('Catchup worker stopped');
   }
 
   private async withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
@@ -285,7 +268,7 @@ export class OrderIndexer {
   }
 
   private async processBlockRange(fromBlock: number, toBlock: number): Promise<void> {
-    const chunkSize = 500;
+    const chunkSize = 2000;
 
     for (let from = fromBlock; from <= toBlock; from += chunkSize) {
       if (!this.isRunning) break;
@@ -364,4 +347,10 @@ export class OrderIndexer {
       this.isProcessingQueue = false;
     }
   }
+
+  private debugTrace = (prefix: string) => (info: any) => {
+    if (info.action !== 'receiveRpcResult') {
+      log.debug(`${prefix}: ${info.action} -> ${info.payload?.method}`);
+    }
+  };
 }
