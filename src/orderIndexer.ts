@@ -102,11 +102,6 @@ export class OrderIndexer {
       this.reconnectTimeout = null;
     }
 
-    if (this.healthCheckInterval) {
-      clearInterval(this.healthCheckInterval);
-      this.healthCheckInterval = null;
-    }
-
     if (this.wsOrderEngine) {
       void this.wsOrderEngine.removeAllListeners();
       this.wsOrderEngine = null;
@@ -199,17 +194,17 @@ export class OrderIndexer {
       log.info('WebSocket listener started');
     } catch (error) {
       log.error('Error starting WebSocket:', error);
-      await this.reconnectWebSocket();
+      this.reconnectWebSocket();
     }
   }
 
   private monitorWebSocketHealth(): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+    }
+
     this.healthCheckInterval = setInterval(async () => {
       if (!this.isRunning || !this.wsProvider) {
-        if (this.healthCheckInterval) {
-          clearInterval(this.healthCheckInterval);
-          this.healthCheckInterval = null;
-        }
         return;
       }
 
@@ -220,18 +215,13 @@ export class OrderIndexer {
         );
       } catch (error) {
         log.warn('WebSocket health check failed:', error);
-        void this.reconnectWebSocket();
+        this.reconnectWebSocket();
       }
     }, 60_000);
   }
 
-  private async reconnectWebSocket(): Promise<void> {
+  private reconnectWebSocket(): void {
     if (!this.isRunning || this.reconnectTimeout) return;
-
-    if (this.healthCheckInterval) {
-      clearInterval(this.healthCheckInterval);
-      this.healthCheckInterval = null;
-    }
 
     if (this.wsOrderEngine) {
       void this.wsOrderEngine.removeAllListeners();
@@ -239,8 +229,8 @@ export class OrderIndexer {
     }
 
     if (this.wsProvider) {
-      await this.wsProvider.removeAllListeners();
-      await this.wsProvider.destroy();
+      void this.wsProvider.removeAllListeners();
+      void this.wsProvider.destroy();
       this.wsProvider = null;
     }
 
@@ -254,7 +244,7 @@ export class OrderIndexer {
           await this.startWebSocketListener();
         } catch (error) {
           log.error('Error reconnecting WebSocket:', error);
-          await this.reconnectWebSocket();
+          this.reconnectWebSocket();
         }
       }
     }, 5000);
