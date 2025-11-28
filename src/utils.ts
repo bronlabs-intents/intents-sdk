@@ -2,12 +2,25 @@ import * as winston from 'winston';
 
 export const log = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
-  format: winston.format.combine(
-    winston.format.colorize(),
-    winston.format.printf(({ level, message }: winston.Logform.TransformableInfo) => {
-      return `${level}\t${message}`;
-    })
-  ),
+  format: process.env.LOG_FORMAT === 'json'
+    ? winston.format.combine(
+        winston.format.errors({ stack: true }),
+        winston.format.timestamp(),
+        winston.format.printf(({ level, message, timestamp, stack }) => {
+          return JSON.stringify({
+            '@timestamp': timestamp,
+            level: level.toUpperCase(),
+            message: stack || message
+          });
+        })
+      )
+    : winston.format.combine(
+        winston.format.errors({ stack: true }),
+        winston.format.colorize(),
+        winston.format.printf(({ level, message, stack }: winston.Logform.TransformableInfo) => {
+          return stack ? `${level}\t${message}\n${stack}` : `${level}\t${message}`;
+        })
+      ),
   transports: [new winston.transports.Console()]
 });
 
