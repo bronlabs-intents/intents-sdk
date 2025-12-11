@@ -2,24 +2,6 @@
   "name": "@bronlabs/intents-sdk",
   "version": "1.0.74",
   "description": "SDK for Intents DeFi smart contracts",
-  "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
-    },
-    "./networks": {
-      "import": "./dist/networks.js",
-      "types": "./dist/networks.d.ts"
-    }
-  },
-  "files": [
-    "dist/**/*",
-    "abi/**/*",
-    "README.md"
-  ],
   "keywords": [
     "defi",
     "blockchain",
@@ -32,35 +14,58 @@
     "type": "git",
     "url": "git@github.com:bronlabs-intents/intents-sdk.git"
   },
-  "engines": {
-    "node": ">=22.0.0"
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./networks": {
+      "types": "./dist/networks.d.ts",
+      "import": "./dist/networks.js"
+    }
   },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist/**/*",
+    "abi/**/*",
+    "README.md"
+  ],
   "scripts": {
-    "clean": "rimraf dist",
-    "build": "npm run clean && tsc"
+    "build": "pnpm run clean && tsc",
+    "clean": "rimraf dist"
   },
   "dependencies": {
-    "@noble/ed25519": "^1.7.1",
+    "@noble/ed25519": "^3.0.0",
     "@solana/spl-token": "^0.3.11",
     "@solana/web3.js": "^1.87.6",
     "big.js": "^7.0.1",
     "bitcoinjs-lib": "^6.1.7",
-    "ecpair": "^2.1.0",
-    "tiny-secp256k1": "^2.2.3",
     "bs58": "^6.0.0",
     "dotenv": "^16.5.0",
-    "ethers": "^6.15.0",
-    "tron-format-address": "^0.1.12",
+    "ecpair": "^2.1.0",
+    "ethers": "^6.16.0",
     "https-proxy-agent": "^7.0.6",
     "node-fetch": "^2.7.0",
+    "tiny-secp256k1": "^2.2.3",
+    "tron-format-address": "^0.1.12",
     "tronweb": "^6.0.3",
     "winston": "^3.17.0"
   },
   "devDependencies": {
     "@types/big.js": "^6.2.2",
-    "@types/node": "^22.15.31",
+    "@types/node": "^24.10.1",
     "@types/node-fetch": "^2.6.12",
     "rimraf": "^6.0.1",
     "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "undici-types": "^7.16.0"
+    }
   }
 }

@@ -234,7 +234,7 @@ export class CantonNetwork implements Network {
       throw new Error("Canton does not support tokens");
     }
 
-    const publicKey = (await ed25519.utils.getExtendedPublicKey(privateKey)).point.toHex().toUpperCase();
+    const publicKey = ed25519.utils.getExtendedPublicKey(Buffer.from(privateKey, 'hex')).point.toHex().toUpperCase();
 
     let nonce;
     try {
