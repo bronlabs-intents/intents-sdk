@@ -1,6 +1,6 @@
 
 publish:
-	npm run build
-	npm version patch
-	npm publish --access public
+	pnpm run build
+	pnpm version patch
+	pnpm publish --access public
 	git push --tags

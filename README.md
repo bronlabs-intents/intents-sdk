@@ -5,7 +5,7 @@ TypeScript SDK for building Intents DeFi applications with order indexing, proce
 ## Installation
 
 ```bash
-npm install @bronlabs/intents-sdk
+pnpm install @bronlabs/intents-sdk
 ```
 
 ## Core Components
