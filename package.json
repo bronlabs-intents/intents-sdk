@@ -58,6 +58,7 @@
     "@types/big.js": "^6.2.2",
     "@types/node": "^24.10.1",
     "@types/node-fetch": "^2.6.12",
+    "@types/ws": "^8.18.1",
     "rimraf": "^6.0.1",
     "typescript": "^5.8.3"
   },
