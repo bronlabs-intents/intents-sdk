@@ -1,6 +1,6 @@
 {
   "name": "@bronlabs/intents-sdk",
-  "version": "1.0.74",
+  "version": "1.0.75",
   "description": "SDK for Intents DeFi smart contracts",
   "keywords": [
     "defi",
