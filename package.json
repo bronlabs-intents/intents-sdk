@@ -50,7 +50,7 @@
     "node-fetch": "^2.7.0",
     "tiny-secp256k1": "^2.2.3",
     "tron-format-address": "^0.1.12",
-    "tronweb": "^6.0.3",
+    "tronweb": "^6.0.4",
     "winston": "^3.17.0",
     "ws": "^8.18.3"
   },
