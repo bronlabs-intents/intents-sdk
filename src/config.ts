@@ -9,6 +9,7 @@ export interface NetworkConfig {
   clientId?: string;
   clientSecret?: string;
   daUtilitiesApiUrl?: string;
+  reconcileInterval?: number;
 }
 
 export interface IntentsConfig {
