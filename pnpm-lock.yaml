@@ -60,7 +60,7 @@ importers:
         specifier: ^0.1.12
         version: 0.1.12
       tronweb:
-        specifier: ^6.0.3
+        specifier: ^6.0.4
         version: 6.1.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
       winston:
         specifier: ^3.17.0

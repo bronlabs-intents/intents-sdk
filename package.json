@@ -1,6 +1,6 @@
 {
   "name": "@bronlabs/intents-sdk",
-  "version": "1.0.74",
+  "version": "1.0.76",
   "description": "SDK for Intents DeFi smart contracts",
   "keywords": [
     "defi",
@@ -53,7 +53,7 @@
     "node-fetch": "^2.7.0",
     "tiny-secp256k1": "^2.2.3",
     "tron-format-address": "^0.1.12",
-    "tronweb": "^6.0.3",
+    "tronweb": "^6.0.4",
     "winston": "^3.17.0",
     "ws": "^8.18.3"
   },
