@@ -8,32 +8,32 @@ export class CosmosNetwork implements Network {
   private readonly rpcUrl: string;
   private readonly nativeDenom: string;
   private readonly confirmations: number;
-  private readonly nativeAssetDecimals: number;
   readonly retryDelay: number = 15000;
   private readonly bech32: string;
   private readonly gasPrice: number;
 
-  constructor(rpcUrl: string, nativeAssetDecimals: number, nativeDenom: string, bech32: string, gasPrice: number, confirmations: number = 1) {
+  constructor(rpcUrl: string, nativeDenom: string, bech32: string, gasPrice: number, confirmations: number = 1) {
     this.rpcUrl = rpcUrl;
     this.confirmations = confirmations;
-    this.nativeAssetDecimals = nativeAssetDecimals;
     this.gasPrice = gasPrice;
     this.nativeDenom = nativeDenom;
     this.bech32 = bech32
   }
 
   async getDecimals(tokenAddress: string): Promise<number> {
+    let denom = tokenAddress;
     if (tokenAddress === "0x0") {
-      return this.nativeAssetDecimals;
+      denom = this.nativeDenom;
     }
 
-    const firstLetter = tokenAddress[0];
+    const firstLetter = denom[0];
     if (firstLetter === 'u') {
       // micro
       return 6;
     }
 
     if (firstLetter === 'a') {
+      // atto
       return 18;
     }
 
