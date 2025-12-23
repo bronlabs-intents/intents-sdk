@@ -5,6 +5,7 @@ import { TrxNetwork } from './trx.js';
 import { SolNetwork } from './sol.js';
 import { CantonNetwork } from './canton.js';
 import { BtcNetwork } from './btc.js';
+import { CosmosNetwork } from "./cosmos.js";
 
 export interface TransactionData {
   to: string;
@@ -42,7 +43,9 @@ const networkBuilders = {
   "HYPE": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 15),
   "TRX": (cf: NetworkConfig) => new TrxNetwork(cf.rpcUrl, 20),
   "SOL": (cf: NetworkConfig) => new SolNetwork(cf.rpcUrl, 20),
-  "CC": (cf: NetworkConfig) => new CantonNetwork(cf.rpcUrl, cf.ledgerApiUrl, cf.scanApiUrl, cf.authUrl, cf.clientId, cf.clientSecret, cf.walletAddress, cf.daUtilitiesApiUrl)
+  "CC": (cf: NetworkConfig) => new CantonNetwork(cf.rpcUrl, cf.ledgerApiUrl, cf.scanApiUrl, cf.authUrl, cf.clientId, cf.clientSecret, cf.walletAddress, cf.daUtilitiesApiUrl),
+  "GNK": (cf: NetworkConfig) => new CosmosNetwork(cf.rpcUrl, 9, 'ngonka', 'gonka', 0, 1),
+  "testGNK": (cf: NetworkConfig) => new CosmosNetwork(cf.rpcUrl, 9, 'ngonka', 'gonka', 0, 1)
 }
 
 export const initNetworks = (configs: { [key: string]: NetworkConfig }, filter?: (cfg: NetworkConfig) => boolean) =>
