@@ -23,6 +23,8 @@ export interface Network {
   transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string>;
 
   readonly retryDelay: number;
+
+  reconcileInterval?: number;
 }
 
 const networkBuilders = {
@@ -52,6 +54,7 @@ export const initNetworks = (configs: { [key: string]: NetworkConfig }, filter?:
   Object.entries(networkBuilders).reduce((acc, [networkName, builder]) => {
     if (configs[networkName]?.rpcUrl && (!filter || filter(configs[networkName]))) {
       acc[networkName] = builder(configs[networkName])
+      acc[networkName].reconcileInterval = configs[networkName].reconcileInterval;
     }
 
     return acc;
