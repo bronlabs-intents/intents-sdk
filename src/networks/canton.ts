@@ -3,7 +3,7 @@ import * as ed25519 from '@noble/ed25519';
 import fetch from 'node-fetch';
 
 import { Network, TransactionData } from './index.js';
-import { log, expRetry } from '../utils.js';
+import { log, expRetry, memoize } from '../utils.js';
 import { Big } from 'big.js';
 import { ethers } from "ethers";
 
@@ -61,16 +61,18 @@ export class CantonNetwork implements Network {
 
     const [tokenIssuer, tokenInstrumentId] = tokenAddress.split(':::')
 
-    const resp = await fetch(`${this.daUtilitiesApiUrl}/api/token-standard/v0/registrars/${tokenIssuer}/registry/metadata/v1/instruments/${tokenInstrumentId}`, {
-      method: 'GET',
-      agent: this.proxyAgent
+    return await memoize(`cc-decimals-${tokenIssuer}-${tokenInstrumentId}`, 3600_000, async () => {
+      const resp = await fetch(`${this.daUtilitiesApiUrl}/api/token-standard/v0/registrars/${tokenIssuer}/registry/metadata/v1/instruments/${tokenInstrumentId}`, {
+        method: 'GET',
+        agent: this.proxyAgent
+      });
+
+      if (!resp.ok) {
+        throw new Error(`Failed to get token metadata from ${this.daUtilitiesApiUrl}/api/token-standard/v0/registrars/${tokenIssuer}/registry/metadata/v1/instruments/${tokenInstrumentId}: ${resp.status} - ${await resp.text()}`);
+      }
+
+      return (await resp.json()).decimals;
     });
-
-    if (!resp.ok) {
-      throw new Error(`Failed to get token metadata from ${this.daUtilitiesApiUrl}/api/token-standard/v0/registrars/${tokenIssuer}/registry/metadata/v1/instruments/${tokenInstrumentId}: ${resp.status} - ${await resp.text()}`);
-    }
-
-    return (await resp.json()).decimals;
   }
 
   async getTxData(txHash: string, tokenAddress: string): Promise<TransactionData | undefined> {
