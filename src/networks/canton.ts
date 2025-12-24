@@ -61,7 +61,7 @@ export class CantonNetwork implements Network {
 
     const [tokenIssuer, tokenInstrumentId] = tokenAddress.split(':::')
 
-    return await memoize(`cc-decimals-${tokenIssuer}-${tokenInstrumentId}`, 3600_000, async () => {
+    return await memoize(`cc-decimals-${tokenIssuer}-${tokenInstrumentId}`, 86_400_000, async () => {
       const resp = await fetch(`${this.daUtilitiesApiUrl}/api/token-standard/v0/registrars/${tokenIssuer}/registry/metadata/v1/instruments/${tokenInstrumentId}`, {
         method: 'GET',
         agent: this.proxyAgent
