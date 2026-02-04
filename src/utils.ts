@@ -26,6 +26,15 @@ export const log = winston.createLogger({
 
 export const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 
+export function withTimeout<T>(promise: Promise<T>, ms: number, message?: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error(message || `Timeout after ${ms}ms`)), ms)
+    )
+  ]);
+}
+
 export async function expRetry<T>(fn: () => Promise<T>, maxRetries: number = 3, retryIf: (e: Error) => boolean = () => true): Promise<T> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
