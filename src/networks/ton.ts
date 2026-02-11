@@ -49,8 +49,6 @@ export class TonNetwork implements Network {
     const masterchainInfo = await this.request("/api/v3/masterchainInfo");
     const currentSeqno = masterchainInfo.last?.seqno ?? 0;
 
-    console.log("43468346893462386236236236")
-
     const txResponse = await this.request(`/api/v3/transactions?hash=${encodeURIComponent(txHash)}&limit=1`);
 
     if (!txResponse.transactions?.length) {
