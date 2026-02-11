@@ -49,6 +49,8 @@ export class TonNetwork implements Network {
     const masterchainInfo = await this.request("/api/v3/masterchainInfo");
     const currentSeqno = masterchainInfo.last?.seqno ?? 0;
 
+    console.log("43468346893462386236236236")
+
     const txResponse = await this.request(`/api/v3/transactions?hash=${encodeURIComponent(txHash)}&limit=1`);
 
     if (!txResponse.transactions?.length) {
@@ -59,9 +61,15 @@ export class TonNetwork implements Network {
     const txSeqno = tx.mc_block_seqno ?? currentSeqno;
     const confirmed = currentSeqno - txSeqno >= this.confirmations;
 
-    // exit_code 0 = success, 1 = alternative success, null = no compute phase
-    if (tx.compute_exit_code !== 0 && tx.compute_exit_code !== 1 && tx.compute_exit_code !== null) {
-      log.warn(`Transaction ${txHash} failed: exit_code=${tx.compute_exit_code}`);
+    // exit_code is in description.compute_ph.exit_code for transactionsByMessage API
+    // exit_code 0 = success, 1 = alternative success
+    // skipped compute phase (no compute_ph) is ok for simple transfers
+    const computePh = tx.description?.compute_ph;
+    const exitCode = computePh?.exit_code;
+    const computeSuccess = computePh?.success;
+
+    if (computePh && computeSuccess === false) {
+      log.warn(`Transaction ${txHash} failed: exit_code=${exitCode}`);
 
       return {
         to: "",
@@ -261,7 +269,7 @@ export class TonNetwork implements Network {
     throw new Error(`Jetton wallet not found for ${ownerAddress}`);
   }
 
-  private normalizeAddress(address: any): string {
+  private normalizeAddress(address: any, bounceable: boolean = false): string {
     if (!address) return "";
 
     let rawAddress: string;
@@ -275,7 +283,7 @@ export class TonNetwork implements Network {
     }
 
     try {
-      return Address.parse(rawAddress).toString();
+      return Address.parse(rawAddress).toString({ bounceable });
     } catch {
       return rawAddress;
     }
