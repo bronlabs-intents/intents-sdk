@@ -369,7 +369,8 @@ export class CantonNetwork implements Network {
         'client_secret': this.clientSecret,
         'audience': 'https://canton.network.global',
         'grant_type': 'client_credentials'
-      })
+      }),
+      agent: this.proxyAgent
     });
 
     if (!response.ok) {
