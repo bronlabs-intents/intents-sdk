@@ -133,7 +133,7 @@ export class CantonNetwork implements Network {
         to: "",
         token: "",
         amount: 0n,
-        confirmed: true
+        confirmed: false
       };
     }
 
