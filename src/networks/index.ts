@@ -26,6 +26,7 @@ export interface Network {
   readonly retryDelay: number;
 
   reconcileInterval?: number;
+  TBAWaitPeriodSeconds?: number;
 }
 
 const networkBuilders = {
@@ -57,6 +58,7 @@ export const initNetworks = (configs: { [key: string]: NetworkConfig }, filter?:
     if (configs[networkName]?.rpcUrl && (!filter || filter(configs[networkName]))) {
       acc[networkName] = builder(configs[networkName])
       acc[networkName].reconcileInterval = configs[networkName].reconcileInterval;
+      acc[networkName].TBAWaitPeriodSeconds = configs[networkName].TBAWaitPeriodSeconds;
     }
 
     return acc;

@@ -10,6 +10,7 @@ export interface NetworkConfig {
   clientSecret?: string;
   daUtilitiesApiUrl?: string;
   reconcileInterval?: number;
+  TBAWaitPeriodSeconds?: number;
 }
 
 export interface IntentsConfig {
