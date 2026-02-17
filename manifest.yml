@@ -14,4 +14,4 @@ promote:
       pnpm install &&
       pnpm run build &&
       pnpm version {{ info.build-version }} --no-git-tag-version && 
-      pnpm publish --no-git-checks --auth-type=web
+      npm publish --no-git-checks --auth-type=web
