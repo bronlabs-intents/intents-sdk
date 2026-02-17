@@ -10,9 +10,8 @@ build:
   - node: pnpm install && pnpm run build
 
 promote:
-  - node:
-      cmd: >
-        pnpm install &&
-        pnpm run build &&
-        pnpm version {{ info.build-version }} --no-git-tag-version &&
-        script -qec "pnpm publish --no-git-checks" /dev/null
+  - node: >
+      pnpm install &&
+      pnpm run build &&
+      pnpm version {{ info.build-version }} --no-git-tag-version &&
+      script -qec "pnpm publish --no-git-checks" /dev/null
