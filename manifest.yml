@@ -7,5 +7,11 @@ include:
   - file: /etc/serve/include.d/library.yml
 
 build:
-  - node:
-      node: pnpm install && pnpm run build
+  - node: pnpm install && pnpm run build
+
+promote:
+  - node: >
+      pnpm install &&
+      pnpm run build &&
+      pnpm version {{ info.build-version }} --no-git-tag-version && 
+      pnpm publish --no-git-checks
