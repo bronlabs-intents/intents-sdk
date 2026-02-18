@@ -4,6 +4,7 @@ import * as ecc from 'tiny-secp256k1';
 
 import { Network, TransactionData } from './index.js';
 import { log } from '../utils.js';
+import { proxyFetch } from '../proxy.js';
 import { randomUUID } from 'node:crypto';
 
 interface BtcTransaction {
@@ -162,7 +163,7 @@ export class BtcNetwork implements Network {
   }
 
   private async rpcCall(method: string, params: any[] = []): Promise<any> {
-    const response = await fetch(this.rpcUrl, {
+    const response = await proxyFetch(this.rpcUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({

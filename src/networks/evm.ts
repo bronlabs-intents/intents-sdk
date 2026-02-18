@@ -2,6 +2,7 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
 import { log, memoize } from '../utils.js';
+import { proxyFetch } from '../proxy.js';
 
 interface EthTransactionReceipt {
   status: string;
@@ -32,7 +33,7 @@ export class EvmNetwork implements Network {
     }
 
     return memoize(`decimals-${this.rpcUrl}-${tokenAddress}`, 86400 * 1000, async () => {
-      const { result } = await fetch(this.rpcUrl, {
+      const { result } = await proxyFetch(this.rpcUrl, {
         method: 'POST',
         body: JSON.stringify({
           id: 1,
@@ -55,7 +56,7 @@ export class EvmNetwork implements Network {
   async getTxData(txHash: string, tokenAddress: string): Promise<TransactionData | undefined> {
     const currentBlock = await this.provider.getBlockNumber();
 
-    const { result: receiptResult } = await fetch(this.rpcUrl, {
+    const { result: receiptResult } = await proxyFetch(this.rpcUrl, {
       method: 'POST',
       body: JSON.stringify({
         id: 1,
@@ -88,7 +89,7 @@ export class EvmNetwork implements Network {
 
     // Native token - ETH
     if (tokenAddress === "0x0") {
-      const { result } = await fetch(this.rpcUrl, {
+      const { result } = await proxyFetch(this.rpcUrl, {
         method: 'POST',
         body: JSON.stringify({
           id: 1,

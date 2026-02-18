@@ -4,6 +4,7 @@ import bs58 from "bs58";
 
 import { Network, TransactionData } from "./index.js";
 import { log, memoize } from "../utils.js";
+import { proxyFetch } from '../proxy.js';
 
 export class SolNetwork implements Network {
   private readonly rpcUrl: string;
@@ -24,7 +25,7 @@ export class SolNetwork implements Network {
     }
 
     return memoize(`decimals-sol-${tokenAddress}`, 86400 * 1000, async () => {
-      const { result } = await fetch(this.rpcUrl, {
+      const { result } = await proxyFetch(this.rpcUrl, {
         method: 'POST',
         body: JSON.stringify({
           id: 1,
@@ -44,7 +45,7 @@ export class SolNetwork implements Network {
     txHash: string,
     tokenAddress: string
   ): Promise<TransactionData | undefined> {
-    const currentBlock = await fetch(this.rpcUrl, {
+    const currentBlock = await proxyFetch(this.rpcUrl, {
       method: 'POST',
       body: JSON.stringify({
         id: 1,
@@ -54,7 +55,7 @@ export class SolNetwork implements Network {
       })
     }).then((res) => res.json()).then((res) => res.result.context.slot);
 
-    const { result } = await fetch(this.rpcUrl, {
+    const { result } = await proxyFetch(this.rpcUrl, {
       method: 'POST',
       body: JSON.stringify({
         id: 1,
