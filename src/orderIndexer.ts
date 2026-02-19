@@ -1,15 +1,11 @@
 import { ethers, LogDescription, EventLog, FetchRequest } from 'ethers';
 import WebSocket from 'ws';
-import { HttpsProxyAgent } from 'https-proxy-agent';
 
 import { sleep, log } from './utils.js';
 import { EventQueue } from './eventQueue.js';
 import { initOrderEngine, OrderEngineContract } from './contracts.js';
 import { IntentsConfig } from './config.js';
-
-const wsProxyAgent = process.env.HTTP_PROXY ? new HttpsProxyAgent(process.env.HTTP_PROXY, {
-  rejectUnauthorized: false
-}) : undefined;
+import { configureProxy, getProxyAgent } from './proxy.js';
 
 export interface OrderStatusChangedEvent {
   type: 'OrderStatusChanged';
@@ -42,14 +38,18 @@ export class OrderIndexer {
   constructor(config: IntentsConfig) {
     this.config = config;
 
+    configureProxy(config.proxyUrl);
+
     const req = new FetchRequest(config.rpcUrl);
 
     if (config.rpcAuthToken) {
       req.setHeader('x-api-key', config.rpcAuthToken);
     }
 
-    if (wsProxyAgent) {
-      req.getUrlFunc = FetchRequest.createGetUrlFunc({ agent: wsProxyAgent });
+    const agent = getProxyAgent();
+
+    if (agent) {
+      req.getUrlFunc = FetchRequest.createGetUrlFunc({ agent });
     }
 
     this.httpProvider = new ethers.JsonRpcProvider(req, undefined, { staticNetwork: true });
@@ -154,7 +154,8 @@ export class OrderIndexer {
     await this.processHistoricalEvents(); // Process historical events first
 
     try {
-      const wsOptions = wsProxyAgent ? { agent: wsProxyAgent } : undefined;
+      const wsAgent = getProxyAgent();
+      const wsOptions = wsAgent ? { agent: wsAgent } : undefined;
       const ws = new WebSocket(this.config.rpcUrl.replace(/^https?:\/\//, 'wss://'), wsOptions);
 
       ws.on('error', error => {
