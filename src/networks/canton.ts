@@ -1,9 +1,8 @@
-import { HttpsProxyAgent } from 'https-proxy-agent';
 import * as ed25519 from '@noble/ed25519';
-import fetch from 'node-fetch';
 
 import { Network, TransactionData } from './index.js';
 import { log, expRetry, memoize } from '../utils.js';
+import { proxyFetch } from '../proxy.js';
 import { Big } from 'big.js';
 import { ethers } from "ethers";
 
@@ -22,8 +21,6 @@ export class CantonNetwork implements Network {
   private readonly clientId?: string;
   private readonly clientSecret?: string;
   private readonly senderPartyId?: string;
-
-  private readonly proxyAgent?: HttpsProxyAgent<string>;
 
   private accessToken?: string;
   private accessTokenExpiresAt: number = 0;
@@ -44,10 +41,6 @@ export class CantonNetwork implements Network {
     this.authUrl = authUrl || 'https://mainnet-canton-mpch.eu.auth0.com';
     this.daUtilitiesApiUrl = daUtilitiesApiUrl || 'https://api.utilities.digitalasset.com';
 
-    this.proxyAgent = process.env.HTTP_PROXY ? new HttpsProxyAgent(process.env.HTTP_PROXY, {
-      rejectUnauthorized: false
-    }) : undefined;
-
     this.clientId = clientId;
     this.clientSecret = clientSecret;
 
@@ -62,9 +55,8 @@ export class CantonNetwork implements Network {
     const [tokenIssuer, tokenInstrumentId] = tokenAddress.split(':::')
 
     return await memoize(`cc-decimals-${tokenIssuer}-${tokenInstrumentId}`, 86_400_000, async () => {
-      const resp = await fetch(`${this.daUtilitiesApiUrl}/api/token-standard/v0/registrars/${tokenIssuer}/registry/metadata/v1/instruments/${tokenInstrumentId}`, {
-        method: 'GET',
-        agent: this.proxyAgent
+      const resp = await proxyFetch(`${this.daUtilitiesApiUrl}/api/token-standard/v0/registrars/${tokenIssuer}/registry/metadata/v1/instruments/${tokenInstrumentId}`, {
+        method: 'GET'
       });
 
       if (!resp.ok) {
@@ -283,9 +275,8 @@ export class CantonNetwork implements Network {
     return expRetry(async () => {
       log.info(`Waiting for transaction ${update_id} confirmation...`);
 
-      const result = await fetch(`${this.scanApiUrl}/v2/updates/${update_id}`, {
-        method: 'GET',
-        agent: this.proxyAgent
+      const result = await proxyFetch(`${this.scanApiUrl}/v2/updates/${update_id}`, {
+        method: 'GET'
       });
 
       if (!result.ok) {
@@ -359,7 +350,7 @@ export class CantonNetwork implements Network {
       return this.accessToken;
     }
 
-    const response = await fetch(`${this.authUrl}/oauth/token`, {
+    const response = await proxyFetch(`${this.authUrl}/oauth/token`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json'
@@ -369,8 +360,7 @@ export class CantonNetwork implements Network {
         'client_secret': this.clientSecret,
         'audience': 'https://canton.network.global',
         'grant_type': 'client_credentials'
-      }),
-      agent: this.proxyAgent
+      })
     });
 
     if (!response.ok) {
@@ -396,14 +386,13 @@ export class CantonNetwork implements Network {
       const start = Date.now()
       const accessToken = await this.getAccessToken();
 
-      const resp = await fetch(`${node || this.validatorApiUrl}${uri}`, {
+      const resp = await proxyFetch(`${node || this.validatorApiUrl}${uri}`, {
         method,
         headers: {
           'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         },
-        body: body ? JSON.stringify(body) : undefined,
-        agent: this.proxyAgent
+        body: body ? JSON.stringify(body) : undefined
       })
 
       let msg = `${method} ${node || this.validatorApiUrl}${uri} - ${resp.status} ${resp.statusText} (${Date.now() - start}ms)`
