@@ -3,6 +3,7 @@ import { keyPairFromSecretKey } from "@ton/crypto";
 
 import { Network, TransactionData } from "./index.js";
 import { log, memoize } from "../utils.js";
+import { proxyFetch } from '../proxy.js';
 
 export class TonNetwork implements Network {
   private readonly client: TonClient;
@@ -299,7 +300,7 @@ export class TonNetwork implements Network {
   }
 
   private async request(path: string, options?: RequestInit): Promise<any> {
-    const response = await fetch(this.rpcUrl + path, options);
+    const response = await proxyFetch(this.rpcUrl + path, options as any);
 
     if (!response.ok) {
       const text = await response.text();

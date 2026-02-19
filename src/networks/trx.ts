@@ -3,6 +3,7 @@ import { TronWeb } from "tronweb";
 
 import { Network, TransactionData } from "./index.js";
 import { log, memoize } from "../utils.js";
+import { proxyFetch } from '../proxy.js';
 
 export class TrxNetwork implements Network {
   private readonly rpcUrl: string;
@@ -164,7 +165,7 @@ export class TrxNetwork implements Network {
   }
 
   private async request(url: string, options?: RequestInit): Promise<any> {
-    const resp = await fetch(this.rpcUrl + url, {
+    const resp = await proxyFetch(this.rpcUrl + url, {
       ...(options || {}),
       headers: { ...this.authHeaders, ...(options?.headers || {}) }
     });

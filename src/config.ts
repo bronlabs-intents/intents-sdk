@@ -24,6 +24,7 @@ export interface IntentsConfig {
   pollingInterval: number;
   maxRetries: number;
   retryDelay: number;
+  proxyUrl?: string;
 
   networks?: {
     [key: string]: NetworkConfig;
