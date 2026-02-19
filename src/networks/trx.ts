@@ -166,9 +166,9 @@ export class TrxNetwork implements Network {
 
   private async request(url: string, options?: RequestInit): Promise<any> {
     const resp = await proxyFetch(this.rpcUrl + url, {
-      ...(options || {}),
-      headers: { ...this.authHeaders, ...(options?.headers || {}) }
-    });
+      ...options,
+      headers: { ...this.authHeaders, ...(options?.headers as Record<string, string>) }
+    } as any);
 
     if (!resp.ok) {
       throw new Error(`Request error ${resp.status}: ${(await resp.text()).substring(0, 1024)}`);
