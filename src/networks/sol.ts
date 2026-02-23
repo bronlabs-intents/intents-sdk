@@ -78,6 +78,7 @@ export class SolNetwork implements Network {
       log.warn(`Transaction ${txHash} failed on blockchain: ${result}`);
 
       return {
+        from: "",
         to: "",
         token: "",
         amount: 0n,
@@ -88,9 +89,13 @@ export class SolNetwork implements Network {
     log.info(`Confirmations ${txHash}: ${currentBlock - blockNumber}`);
 
     // Native token - SOL
+    // accountKeys[0] is the fee payer (first signer) by Solana protocol
+    const txSigner = result.transaction.message.accountKeys[0];
+
     if (tokenAddress === "0x0") {
       if (Number(result.meta.postBalances[0] - result.meta.preBalances[0]) > 0) {
         return {
+          from: txSigner,
           to: result.transaction.message.accountKeys[0],
           token: tokenAddress,
           amount: BigInt(result.meta.postBalances[0]) - BigInt(result.meta.preBalances[0]),
@@ -98,6 +103,7 @@ export class SolNetwork implements Network {
         };
       } else {
         return {
+          from: txSigner,
           to: result.transaction.message.accountKeys[1],
           token: tokenAddress,
           amount: BigInt(result.meta.postBalances[1]) - BigInt(result.meta.preBalances[1]),
@@ -134,6 +140,7 @@ export class SolNetwork implements Network {
     }
 
     return {
+      from: txSigner,
       to: postTokenBalanceOfReceiver.owner,
       token: postTokenBalanceOfReceiver.mint,
       amount: BigInt(postTokenBalanceOfReceiver.uiTokenAmount.amount) - preBalance,

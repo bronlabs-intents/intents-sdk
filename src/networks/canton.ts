@@ -122,6 +122,7 @@ export class CantonNetwork implements Network {
       log.error(`Transaction ${txHash} failed: ${(transferFactoryResultTag ?? 'Unknown')}`);
 
       return {
+        from: "",
         to: "",
         token: "",
         amount: 0n,
@@ -137,9 +138,11 @@ export class CantonNetwork implements Network {
         amount: '0'
       };
 
+      const from = transfer?.ExercisedEvent?.choiceArgument?.transfer?.sender || "";
       const amount = BigInt(Big(output.amount).mul(Big(10).pow(this.nativeAssetDecimals)).toFixed(0));
 
       return {
+        from,
         to: output.receiver,
         token: tokenAddress,
         amount,
@@ -153,6 +156,7 @@ export class CantonNetwork implements Network {
     const resultOutput = transferFactoryEvent?.ExercisedEvent?.exerciseResult?.output;
 
     const contractId = resultOutput?.value?.transferInstructionCid;
+    const sender = arg?.sender || "";
     const receiver = arg?.receiver;
     const amount = arg?.amount;
     const txTokenAddress = arg?.instrumentId?.admin + ':::' + arg?.instrumentId?.id;
@@ -206,6 +210,7 @@ export class CantonNetwork implements Network {
 
     if (tokenResultTag === "TransferInstructionResult_Completed") {
       return {
+        from: sender,
         to: receiver,
         token: txTokenAddress,
         amount: ethers.parseUnits(amount, tokenDecimals),
@@ -215,6 +220,7 @@ export class CantonNetwork implements Network {
       log.error(`Transaction ${txHash} has wrong tokenResultTag: ${tokenResultTag}`);
 
       return {
+        from: "",
         to: "",
         token: "",
         amount: 0n,

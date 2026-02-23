@@ -9,11 +9,16 @@ import { randomUUID } from 'node:crypto';
 
 interface BtcTransaction {
   txid: string;
+  vin: Array<{
+    txid?: string;
+    vout?: number;
+    coinbase?: string;
+  }>;
   vout: Array<{
     value: bigint;
     scriptPubKey: {
-      address: string;
-      addresses: string[];
+      address?: string;
+      addresses?: string[];
     };
   }>;
   confirmations: number;
@@ -55,6 +60,20 @@ export class BtcNetwork implements Network {
       const tx = await this.rpcCall('getrawtransaction', [txHash, true]) as BtcTransaction;
       if (!tx) return;
 
+      // Extract sender from first input (UTXO limitation - best effort for multi-input txs)
+      let from = "";
+      const firstInput = tx.vin[0];
+      if (firstInput && firstInput.txid && firstInput.vout !== undefined) {
+        try {
+          const prevTx = await this.rpcCall('getrawtransaction', [firstInput.txid, true]) as BtcTransaction;
+          const inputScript = prevTx.vout[firstInput.vout].scriptPubKey;
+          from = inputScript.address || inputScript.addresses?.[0] || "";
+        } catch (e) {
+          log.warn(`Failed to get sender address for ${txHash}: ${e}`);
+        }
+      }
+      // coinbase transactions have no sender
+
       const output = tx.vout.find(vout =>
         vout.scriptPubKey.address === recipientAddress || vout.scriptPubKey.addresses?.includes(recipientAddress)
       );
@@ -63,6 +82,7 @@ export class BtcNetwork implements Network {
         log.warn(`Transaction ${txHash} has no output to ${recipientAddress}: ${JSON.stringify(tx.vout, null, 2)}`);
 
         return {
+          from,
           to: recipientAddress,
           token: tokenAddress,
           amount: 0n,
@@ -73,6 +93,7 @@ export class BtcNetwork implements Network {
       log.info(`Confirmations ${txHash}: ${tx.confirmations}`);
 
       return {
+        from,
         to: recipientAddress,
         token: tokenAddress,
         amount: BigInt(Math.round(Number(output.value) * 1e8)),

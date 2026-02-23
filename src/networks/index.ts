@@ -9,6 +9,7 @@ import { BtcNetwork } from './btc.js';
 import { CosmosNetwork } from "./cosmos.js";
 
 export interface TransactionData {
+  from: string;
   to: string;
   token: string;
   amount: bigint;

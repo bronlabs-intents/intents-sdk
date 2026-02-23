@@ -71,6 +71,7 @@ export class TonNetwork implements Network {
       log.warn(`Transaction ${txHash} failed: exit_code=${exitCode}`);
 
       return {
+        from: this.normalizeAddress(tx.account) || "",
         to: "",
         token: "",
         amount: 0n,
@@ -183,12 +184,16 @@ export class TonNetwork implements Network {
   ): TransactionData | undefined {
     const outMsgs = tx.out_msgs || [];
 
+    // For outgoing messages, the sender is the account that owns this transaction
+    const txAccount = this.normalizeAddress(tx.account);
+
     for (const msg of outMsgs) {
       if (msg.destination) {
         const destAddress = this.normalizeAddress(msg.destination);
 
         if (this.addressesMatch(destAddress, recipientAddress)) {
           return {
+            from: txAccount,
             to: destAddress,
             token: "0x0",
             amount: BigInt(msg.value || 0),
@@ -198,8 +203,12 @@ export class TonNetwork implements Network {
       }
     }
 
+    // For incoming messages, the sender is the source of the in_msg
     if (tx.in_msg?.value) {
+      const from = this.normalizeAddress(tx.in_msg.source);
+
       return {
+        from,
         to: this.normalizeAddress(tx.account),
         token: "0x0",
         amount: BigInt(tx.in_msg.value),
@@ -222,9 +231,11 @@ export class TonNetwork implements Network {
 
     if (transfers.jetton_transfers?.length > 0) {
       const transfer = transfers.jetton_transfers[0];
+      const fromAddress = this.normalizeAddress(transfer.source?.address || transfer.source);
       const destAddress = this.normalizeAddress(transfer.destination?.address || transfer.destination);
 
       return {
+        from: fromAddress,
         to: destAddress,
         token: tokenAddress,
         amount: BigInt(transfer.amount || 0),
@@ -242,9 +253,11 @@ export class TonNetwork implements Network {
 
     for (const transfer of transfersByMaster.jetton_transfers) {
       if (transfer.transaction_hash === txHash) {
+        const fromAddress = this.normalizeAddress(transfer.source?.address || transfer.source);
         const destAddress = this.normalizeAddress(transfer.destination?.address || transfer.destination);
 
         return {
+          from: fromAddress,
           to: destAddress,
           token: tokenAddress,
           amount: BigInt(transfer.amount || 0),

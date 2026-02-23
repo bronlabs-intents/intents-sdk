@@ -57,6 +57,7 @@ export class CosmosNetwork implements Network {
       log.warn(`Transaction ${txHash} failed on blockchain: ${JSON.stringify(resp)}`);
 
       return {
+        from: "",
         to: "",
         token: "",
         amount: 0n,
@@ -75,6 +76,7 @@ export class CosmosNetwork implements Network {
       log.warn(`Transaction ${txHash} has no MsgSend message: ${JSON.stringify(resp)}`);
 
       return {
+        from: "",
         to: "",
         token: "",
         amount: 0n,
@@ -96,6 +98,7 @@ export class CosmosNetwork implements Network {
       log.warn(`Transaction ${txHash} has no amount for denom ${denom}: ${JSON.stringify(resp)}`);
 
       return {
+        from: "",
         to: "",
         token: "",
         amount: 0n,
@@ -113,6 +116,7 @@ export class CosmosNetwork implements Network {
     log.info(`Confirmations ${txHash}: ${currentBlock}, confirmed: ${confirmed}`)
 
     return {
+      from: decodedMsg.fromAddress,
       to: decodedMsg.toAddress,
       token: tokenAddress,
       amount: BigInt(messageAmount.amount),

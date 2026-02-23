@@ -6,6 +6,7 @@ import { proxyFetch } from '../proxy.js';
 
 interface EthTransactionReceipt {
   status: string;
+  from: string;
   to: string;
   blockNumber: string;
   logs: {
@@ -80,6 +81,7 @@ export class EvmNetwork implements Network {
       log.warn(`Transaction ${txHash} failed on blockchain: ${JSON.stringify(receipt)}`);
 
       return {
+        from: "",
         to: "",
         token: "",
         amount: 0n,
@@ -103,10 +105,11 @@ export class EvmNetwork implements Network {
         return;
       }
 
-      const { to, value } = result;
+      const { from, to, value } = result;
 
       return {
-        to: to,
+        from,
+        to,
         token: tokenAddress,
         amount: BigInt(value),
         confirmed
@@ -115,6 +118,7 @@ export class EvmNetwork implements Network {
 
     // ERC20 token
     return {
+      from: receipt.from,
       to: '0x' + receipt.logs[0].topics[2].slice(26),
       token: receipt.to,
       amount: BigInt(receipt.logs[0].data),

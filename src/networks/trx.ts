@@ -94,6 +94,7 @@ export class TrxNetwork implements Network {
         log.warn(`Transaction ${txHash} failed on blockchain: ${response}`);
 
         return {
+          from: "",
           to: "",
           token: "",
           amount: 0n,
@@ -104,6 +105,7 @@ export class TrxNetwork implements Network {
       log.info(`Confirmations ${txHash}: ${currentBlock - blockNumber}`);
 
       return {
+        from: fromHex(response.raw_data.contract[0].parameter.value.owner_address),
         to: fromHex(response.raw_data.contract[0].parameter.value.to_address),
         token: tokenAddress,
         amount: BigInt(response.raw_data.contract[0].parameter.value.amount),
@@ -111,7 +113,7 @@ export class TrxNetwork implements Network {
       };
     }
 
-    // ERC20 token
+    // TRC20 token
     const response = await this.request(
       `/wallet/gettransactioninfobyid`,
       {
@@ -132,6 +134,7 @@ export class TrxNetwork implements Network {
       log.warn(`Transaction ${txHash} failed on blockchain: ${response}`);
 
       return {
+        from: "",
         to: "",
         token: "",
         amount: 0n,
@@ -139,7 +142,22 @@ export class TrxNetwork implements Network {
       };
     }
 
+    // Fetch transaction to get owner_address (sender)
+    const txResponse = await this.request(`/wallet/gettransactionbyid`, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        "content-type": "application/json"
+      },
+      body: JSON.stringify({ value: txHash })
+    });
+
+    const from = txResponse?.raw_data?.contract?.[0]?.parameter?.value?.owner_address
+      ? fromHex(txResponse.raw_data.contract[0].parameter.value.owner_address)
+      : "";
+
     return {
+      from,
       to: fromHex("0x" + response.log[0].topics[2].toString().slice(24)),
       token: fromHex(response.contract_address),
       amount: BigInt(parseInt(response.log[0].data, 16)),
