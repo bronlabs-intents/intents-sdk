@@ -866,29 +866,6 @@
         "type": "string"
       },
       {
-        "internalType": "uint256",
-        "name": "_price_e18",
-        "type": "uint256"
-      }
-    ],
-    "name": "solverReact",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string",
-        "name": "_orderId",
-        "type": "string"
-      },
-      {
-        "internalType": "string",
-        "name": "_solverAddressOnBaseChain",
-        "type": "string"
-      },
-      {
         "internalType": "string",
         "name": "_solverSettlementFromAddress",
         "type": "string"
