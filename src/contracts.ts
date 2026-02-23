@@ -84,7 +84,7 @@ export interface OrderEngineContract {
 
   getSettlementFromAddresses(orderId: string): Promise<SettlementFromAddresses>;
 
-  solverReact(orderId: string, solverAddressOnBaseChain: string, price: bigint, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
+  solverReact(orderId: string, solverAddressOnBaseChain: string, solverSettlementFromAddress: string, price: bigint, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
 
   setUserTxOnBaseNetwork(orderId: string, txHash: string, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
 
