@@ -54,6 +54,11 @@ export interface Order {
   createdAt: bigint;
 }
 
+export interface SettlementFromAddresses {
+  userSettlementFromAddress: string;
+  solverSettlementFromAddress: string;
+}
+
 interface NetworkParams {
   gasLimit: number;
 }
@@ -76,6 +81,8 @@ export interface OrderEngineContract {
   }, networkParams?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
 
   getOrder(orderId: string): Promise<Order>;
+
+  getSettlementFromAddresses(orderId: string): Promise<SettlementFromAddresses>;
 
   solverReact(orderId: string, solverAddressOnBaseChain: string, price: bigint, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
 
