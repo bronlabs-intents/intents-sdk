@@ -1,5 +1,6 @@
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import nodeFetch, { type RequestInit, type Response } from 'node-fetch';
+import { log } from './utils.js';
 
 let proxyAgent: HttpsProxyAgent<string> | undefined;
 
@@ -7,6 +8,10 @@ export function configureProxy(url?: string): void {
   proxyAgent = url
     ? new HttpsProxyAgent(url, { rejectUnauthorized: false })
     : undefined;
+
+  if (proxyAgent) {
+    log.info(`Using proxy: ${proxyAgent.options.host}:${proxyAgent.options.port}`)
+  }
 }
 
 export function getProxyAgent(): HttpsProxyAgent<string> | undefined {
