@@ -10,7 +10,7 @@ export function configureProxy(url?: string): void {
     : undefined;
 
   if (proxyAgent) {
-    log.info(`Using proxy: ${proxyAgent.options.host}:${proxyAgent.options.port}`)
+    log.info(`Using proxy: ${proxyAgent.proxy.hostname}:${proxyAgent.proxy.port}`)
   }
 }
 
