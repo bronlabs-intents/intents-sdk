@@ -17,6 +17,9 @@ importers:
       '@cosmjs/stargate':
         specifier: ^0.37.0
         version: 0.37.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+      '@cosmjs/tendermint-rpc':
+        specifier: ^0.37.0
+        version: 0.37.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
       '@noble/ed25519':
         specifier: ^3.0.0
         version: 3.0.0

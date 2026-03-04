@@ -39,6 +39,7 @@
   "dependencies": {
     "@cosmjs/proto-signing": "^0.37.0",
     "@cosmjs/stargate": "^0.37.0",
+    "@cosmjs/tendermint-rpc": "^0.37.0",
     "@noble/ed25519": "^3.0.0",
     "@solana/spl-token": "^0.3.11",
     "@solana/web3.js": "^1.87.6",

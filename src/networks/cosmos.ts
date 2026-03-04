@@ -1,8 +1,45 @@
 import { Network, TransactionData } from './index.js';
 import { log } from '../utils.js';
+import { proxyFetch } from '../proxy.js';
 import { decodeTxRaw, DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { GasPrice, SigningStargateClient, StargateClient } from '@cosmjs/stargate';
+import { Tendermint37Client } from '@cosmjs/tendermint-rpc';
 import { MsgSend } from 'cosmjs-types/cosmos/bank/v1beta1/tx';
+
+class ProxyRpcClient {
+  private readonly url: string;
+
+  constructor(url: string) {
+    this.url = url;
+  }
+
+  disconnect() {}
+
+  async execute(request: any): Promise<any> {
+    const response = await proxyFetch(this.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+
+    if (!response.ok) {
+      const body = await response.text().catch(() => '');
+      throw new Error(`Cosmos RPC request to ${this.url} failed: ${response.status} ${response.statusText} - ${body}`);
+    }
+
+    const json = await response.json() as any;
+
+    if (json.error) {
+      throw new Error(JSON.stringify(json.error));
+    }
+
+    return json;
+  }
+}
+
+function createCometClient(rpcUrl: string) {
+  return Tendermint37Client.create(new ProxyRpcClient(rpcUrl) as any);
+}
 
 export class CosmosNetwork implements Network {
   private readonly rpcUrl: string;
@@ -46,7 +83,7 @@ export class CosmosNetwork implements Network {
   }
 
   async getTxData(txHash: string, tokenAddress: string): Promise<TransactionData | undefined> {
-    const client = await StargateClient.connect(this.rpcUrl)
+    const client = StargateClient.create(createCometClient(this.rpcUrl));
     const resp = await client.getTx(txHash);
 
     if (!resp) {
@@ -131,8 +168,8 @@ export class CosmosNetwork implements Network {
     const sender = account.address;
 
     // 2) Connect signing client
-    const gasPrice = GasPrice.fromString(`${this.gasPrice}${this.nativeDenom}`); // chain-specific denom + price
-    const client = await SigningStargateClient.connectWithSigner(this.rpcUrl, wallet, {gasPrice});
+    const gasPrice = GasPrice.fromString(`${this.gasPrice}${this.nativeDenom}`);
+    const client = SigningStargateClient.createWithSigner(createCometClient(this.rpcUrl), wallet, {gasPrice});
 
     const denom = tokenAddress === "0x0" ? this.nativeDenom : tokenAddress;
 
