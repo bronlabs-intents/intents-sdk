@@ -1,4 +1,5 @@
 export * from './orderIndexer.js';
+export * from './oracleAggregatorIndexer.js';
 export * from './orderProcessor.js';
 export * from './config.js';
 export * from './eventQueue.js';

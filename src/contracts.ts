@@ -103,6 +103,12 @@ export interface OracleAggregatorContract {
   oracleConfirmUserTx(orderId: string, isConfirmed: boolean, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
 
   oracleConfirmSolverTx(orderId: string, isConfirmed: boolean, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
+
+  getOracleSubscribedNetworks(oracle: string): Promise<string[]>;
+
+  subscribeToNetwork(networkId: string): Promise<ethers.ContractTransactionResponse>;
+
+  unsubscribeFromNetwork(networkId: string): Promise<ethers.ContractTransactionResponse>;
 }
 
 export function initOrderEngine(orderEngineAddress: string, provider: ethers.JsonRpcProvider | ethers.Signer): OrderEngineContract & ethers.Contract {

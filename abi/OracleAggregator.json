@@ -11,27 +11,17 @@
   },
   {
     "inputs": [],
-    "name": "OA_INVALID_CALL",
+    "name": "OA_INVALID_CALLER",
     "type": "error"
   },
   {
     "inputs": [],
-    "name": "OA_INVALID_ORDER_STATUS",
+    "name": "OA_INVALID_PARAMS",
     "type": "error"
   },
   {
     "inputs": [],
-    "name": "OA_ONLY_ORACLE_OR_OWNER",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "OA_ORACLE_ALREADY_INACTIVE",
-    "type": "error"
-  },
-  {
-    "inputs": [],
-    "name": "OA_ORACLE_ALREADY_REGISTERED",
+    "name": "OA_INVALID_STATUS",
     "type": "error"
   },
   {
@@ -41,12 +31,12 @@
   },
   {
     "inputs": [],
-    "name": "OA_ORACLE_NOT_ACTIVE",
+    "name": "OA_ORACLE_NOT_ASSIGNED",
     "type": "error"
   },
   {
     "inputs": [],
-    "name": "OA_ORACLE_NOT_PENDING",
+    "name": "OA_TIMEOUT",
     "type": "error"
   },
   {
@@ -72,6 +62,17 @@
     "type": "error"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      }
+    ],
+    "name": "SafeERC20FailedOperation",
+    "type": "error"
+  },
+  {
     "anonymous": false,
     "inputs": [
       {
@@ -82,6 +83,88 @@
       }
     ],
     "name": "Initialized",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "orderId",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "address[]",
+        "name": "oracles",
+        "type": "address[]"
+      }
+    ],
+    "name": "IntentOraclesInitialized",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "orderId",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "newRoundId",
+        "type": "uint256"
+      }
+    ],
+    "name": "OracleConsensusReset",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "oracle",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "networkId",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "cooldownEndTime",
+        "type": "uint256"
+      }
+    ],
+    "name": "OracleNetworkCooldown",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "oracle",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "enum IOracleAggregator.OracleStatus",
+        "name": "status",
+        "type": "uint8"
+      }
+    ],
+    "name": "OracleStatusChanged",
     "type": "event"
   },
   {
@@ -107,11 +190,29 @@
     "inputs": [
       {
         "internalType": "address",
-        "name": "_oracle",
+        "name": "_feeToken",
         "type": "address"
       }
     ],
-    "name": "deactivateOracle",
+    "name": "claimOracleCollectedFees",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_oracle",
+        "type": "address"
+      },
+      {
+        "internalType": "string",
+        "name": "_networkId",
+        "type": "string"
+      }
+    ],
+    "name": "cleanupExpiredNetworkCooldown",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -124,25 +225,140 @@
         "type": "address"
       }
     ],
-    "name": "getOracleStatus",
+    "name": "deactivateOracle",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_feesAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "_feeToken",
+        "type": "address"
+      }
+    ],
+    "name": "distributeFees",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      }
+    ],
+    "name": "getActualRoundOracleConsensus",
     "outputs": [
       {
-        "internalType": "bool",
+        "internalType": "uint256",
         "name": "",
-        "type": "bool"
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
       }
     ],
     "stateMutability": "view",
     "type": "function"
   },
   {
-    "inputs": [],
-    "name": "getTotalOraclesCount",
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_networkId",
+        "type": "string"
+      }
+    ],
+    "name": "getEffectiveOraclesCount",
     "outputs": [
       {
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_roundId",
+        "type": "uint256"
+      }
+    ],
+    "name": "getOracleConsensusByRoundId",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_oracle",
+        "type": "address"
+      }
+    ],
+    "name": "getOracleSubscribedNetworks",
+    "outputs": [
+      {
+        "internalType": "string[]",
+        "name": "",
+        "type": "string[]"
       }
     ],
     "stateMutability": "view",
@@ -164,6 +380,151 @@
     "name": "initialize",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      },
+      {
+        "internalType": "address",
+        "name": "_oracle",
+        "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "_isUserTx",
+        "type": "bool"
+      }
+    ],
+    "name": "isOracleVotedInActualRound",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      },
+      {
+        "internalType": "address",
+        "name": "_oracle",
+        "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "_isUserTx",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_roundId",
+        "type": "uint256"
+      }
+    ],
+    "name": "isOracleVotedInRoundId",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_oracle",
+        "type": "address"
+      }
+    ],
+    "name": "kickOracle",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "maxNetworkCooldownsBeforeSuspend",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "networkManager",
+    "outputs": [
+      {
+        "internalType": "contract INetworkManager",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      }
+    ],
+    "name": "networkOraclesCount",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "oracleCollectedFees",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -200,6 +561,92 @@
     "name": "oracleConfirmUserTx",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "oracleLatestConfirmationTime",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      },
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "oracleNetworkCooldownEndTime",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "",
+        "type": "string"
+      },
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "oracleNetworkSubscription",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "oracleWrongDecisionCooldownEndTime",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
@@ -313,12 +760,64 @@
   {
     "inputs": [
       {
-        "internalType": "contract IOrderEngine",
-        "name": "_orderEngine",
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      }
+    ],
+    "name": "resetOracleConsensusOnSolverTx",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_max",
+        "type": "uint256"
+      }
+    ],
+    "name": "setMaxNetworkCooldownsBeforeSuspend",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "_cooldown",
+        "type": "uint256"
+      }
+    ],
+    "name": "setWrongOracleDecisionCooldown",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "solverRegister",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
         "type": "address"
       }
     ],
-    "name": "setOrderEngine",
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_networkId",
+        "type": "string"
+      }
+    ],
+    "name": "subscribeToNetwork",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -334,6 +833,50 @@
     "name": "transferOwnership",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_networkId",
+        "type": "string"
+      }
+    ],
+    "name": "unsubscribeFromNetwork",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_oracle",
+        "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "_isSuspend",
+        "type": "bool"
+      }
+    ],
+    "name": "updateSuspendOracleStatus",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "wrongOracleDecisionCooldown",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   }
 ]
