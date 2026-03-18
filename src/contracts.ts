@@ -106,9 +106,55 @@ export interface OracleAggregatorContract {
 
   getOracleSubscribedNetworks(oracle: string): Promise<string[]>;
 
-  subscribeToNetwork(networkId: string): Promise<ethers.ContractTransactionResponse>;
+  getOracleCooldownNetworks(oracle: string): Promise<string[]>;
 
-  unsubscribeFromNetwork(networkId: string): Promise<ethers.ContractTransactionResponse>;
+  getOracleYesVotes(orderId: string, oracle: string): Promise<bigint>;
+
+  getParticipatingOraclesYesVotes(orderId: string): Promise<string[]>;
+
+  getOracleConsensusRoundId(orderId: string): Promise<bigint>;
+
+  getOracleConsensusYesVotesCount(orderId: string): Promise<bigint>;
+
+  getActualRoundQuorumVoters(orderId: string, isUserTx: boolean): Promise<[string[], string[]]>;
+
+  getQuorumVoters(orderId: string, roundId: bigint, isUserTx: boolean): Promise<[string[], string[]]>;
+
+  getEffectiveOraclesCount(networkId: string): Promise<bigint>;
+
+  subscribeToNetwork(networkId: string, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
+
+  unsubscribeFromNetwork(networkId: string, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
+
+  registerOracle(params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
+
+  reconcileOracleConsensus(orderId: string, isUserTx: boolean, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
+
+  claimOracleCollectedFees(feeToken: string, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
+
+  cleanupExpiredNetworkCooldown(oracle: string, networkId: string, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
+
+  setTreasury(bronTreasury: string, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
+
+  oraclesCount(): Promise<bigint>;
+
+  networkOraclesCount(networkId: string): Promise<bigint>;
+
+  networkActiveCooldownCount(networkId: string): Promise<bigint>;
+
+  oracleCollectedFees(oracle: string, feeToken: string): Promise<bigint>;
+
+  oracleNetworkCooldownEndTime(networkId: string, oracle: string): Promise<bigint>;
+
+  oracleNetworkSubscription(networkId: string, oracle: string): Promise<boolean>;
+
+  oracleWrongDecisionCooldownEndTime(oracle: string): Promise<bigint>;
+
+  wrongOracleDecisionCooldown(): Promise<bigint>;
+
+  isOracleVotedInActualRound(orderId: string, oracle: string, isUserTx: boolean): Promise<boolean>;
+
+  isOracleVotedInRoundId(orderId: string, oracle: string, isUserTx: boolean, roundId: bigint): Promise<boolean>;
 }
 
 export function initOrderEngine(orderEngineAddress: string, provider: ethers.JsonRpcProvider | ethers.Signer): OrderEngineContract & ethers.Contract {
