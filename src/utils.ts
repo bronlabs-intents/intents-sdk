@@ -1,28 +1,40 @@
 import * as winston from 'winston';
 
+const jsonFormat = winston.format.combine(
+  winston.format.errors({ stack: true }),
+  winston.format.timestamp(),
+  winston.format.printf(({ level, message, timestamp, stack }) => {
+    return JSON.stringify({
+      '@timestamp': timestamp,
+      level: level.toUpperCase(),
+      message: stack || message
+    });
+  })
+);
+
+const textFormat = winston.format.combine(
+  winston.format.errors({ stack: true }),
+  winston.format.colorize(),
+  winston.format.printf(({ level, message, stack }: winston.Logform.TransformableInfo) => {
+    return stack ? `${level}\t${message}\n${stack}` : `${level}\t${message}`;
+  })
+);
+
 export const log = winston.createLogger({
   level: process.env.LOG_LEVEL || 'info',
-  format: process.env.LOG_FORMAT === 'json'
-    ? winston.format.combine(
-        winston.format.errors({ stack: true }),
-        winston.format.timestamp(),
-        winston.format.printf(({ level, message, timestamp, stack }) => {
-          return JSON.stringify({
-            '@timestamp': timestamp,
-            level: level.toUpperCase(),
-            message: stack || message
-          });
-        })
-      )
-    : winston.format.combine(
-        winston.format.errors({ stack: true }),
-        winston.format.colorize(),
-        winston.format.printf(({ level, message, stack }: winston.Logform.TransformableInfo) => {
-          return stack ? `${level}\t${message}\n${stack}` : `${level}\t${message}`;
-        })
-      ),
+  format: process.env.LOG_FORMAT === 'json' ? jsonFormat : textFormat,
   transports: [new winston.transports.Console()]
 });
+
+export function configureLog(options: { format?: 'json' | 'text'; level?: string }) {
+  if (options.format) {
+    log.format = options.format === 'json' ? jsonFormat : textFormat;
+  }
+
+  if (options.level) {
+    log.level = options.level;
+  }
+}
 
 export const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 
