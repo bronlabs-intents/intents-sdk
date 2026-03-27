@@ -281,15 +281,11 @@ export class CantonNetwork implements Network {
     return expRetry(async () => {
       log.info(`Waiting for transaction ${update_id} confirmation...`);
 
-      const result = await proxyFetch(`${this.scanApiUrl}/v2/updates/${update_id}`, {
-        method: 'GET'
+      const json = await this.nodeRequest({
+        method: 'GET',
+        node: this.scanApiUrl,
+        uri: `/v2/updates/${update_id}`,
       });
-
-      if (!result.ok) {
-        throw new Error(`Couldn't get Canton tx data for ${update_id}: ${result.status} ${result.statusText}`);
-      }
-
-      const json = await result.json();
 
       if (!json || json.error) {
         throw new Error(`Couldn't get Canton tx data for ${update_id}: ${json?.error || 'unknown error'}`);
@@ -351,7 +347,14 @@ export class CantonNetwork implements Network {
     return { filtersForAnyParty: { cumulative } };
   }
 
-  private async getAccessToken(): Promise<string> {
+  private async getAccessToken(): Promise<string | undefined> {
+    if (!this.clientId || !this.clientSecret) {
+      if (this.clientId || this.clientSecret) {
+        log.warn('Canton: only one of clientId/clientSecret is set — auth disabled, expecting proxy to handle auth');
+      }
+      return undefined;
+    }
+
     if (this.accessToken && this.accessTokenExpiresAt > Date.now() + 30_000) {
       return this.accessToken;
     }
@@ -392,12 +395,14 @@ export class CantonNetwork implements Network {
       const start = Date.now()
       const accessToken = await this.getAccessToken();
 
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (accessToken) {
+        headers['Authorization'] = `Bearer ${accessToken}`;
+      }
+
       const resp = await proxyFetch(`${node || this.validatorApiUrl}${uri}`, {
         method,
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'Content-Type': 'application/json'
-        },
+        headers,
         body: body ? JSON.stringify(body) : undefined
       })
 
