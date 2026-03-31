@@ -18,6 +18,8 @@ export interface TransactionData {
 
 export interface Network {
 
+  ping(): Promise<void>;
+
   getDecimals(tokenAddress: string): Promise<number>;
 
   getTxData(txHash: string, tokenAddress: string, recipientAddress: string): Promise<TransactionData | undefined>;

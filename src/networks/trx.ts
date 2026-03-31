@@ -31,6 +31,14 @@ export class TrxNetwork implements Network {
     });
   }
 
+  async ping(): Promise<void> {
+    await this.request('/wallet/getnowblock', {
+      method: 'POST',
+      headers: { accept: 'application/json', 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+  }
+
   async getDecimals(tokenAddress: string): Promise<number> {
     if (tokenAddress === "0x0") {
       return this.nativeAssetDecimals;

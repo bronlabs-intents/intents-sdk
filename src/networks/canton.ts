@@ -47,6 +47,10 @@ export class CantonNetwork implements Network {
     this.senderPartyId = senderPartyId;
   }
 
+  async ping(): Promise<void> {
+    await this.nodeRequest({ method: 'GET', uri: '/api/sv/v0/sv' });
+  }
+
   async getDecimals(tokenAddress: string): Promise<number> {
     if (tokenAddress === '0x0') {
       return this.nativeAssetDecimals;

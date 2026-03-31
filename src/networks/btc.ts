@@ -44,6 +44,10 @@ export class BtcNetwork implements Network {
     this.confirmations = confirmations;
   }
 
+  async ping(): Promise<void> {
+    await this.rpcCall('getblockcount');
+  }
+
   async getDecimals(tokenAddress: string): Promise<number> {
     if (tokenAddress !== "0x0") {
       throw new Error("Don't support tokens for BTC network");

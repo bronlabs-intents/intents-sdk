@@ -19,6 +19,10 @@ export class SolNetwork implements Network {
     this.connection = new Connection(rpcUrl, { commitment: "confirmed" });
   }
 
+  async ping(): Promise<void> {
+    await this.connection.getSlot();
+  }
+
   async getDecimals(tokenAddress: string): Promise<number> {
     if (tokenAddress === "0x0") {
       return this.nativeAssetDecimals;

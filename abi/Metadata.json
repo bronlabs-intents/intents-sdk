@@ -343,6 +343,21 @@
             "internalType": "uint128",
             "name": "oraclesFeePercent_e4",
             "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "totalFees",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "totalFeesBps",
+            "type": "uint128"
+          },
+          {
+            "internalType": "uint128",
+            "name": "totalFeesPercent_e4",
+            "type": "uint128"
           }
         ],
         "internalType": "struct IMetadata.OrderFullResponse",

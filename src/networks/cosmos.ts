@@ -57,6 +57,16 @@ export class CosmosNetwork implements Network {
     this.bech32 = bech32
   }
 
+  async ping(): Promise<void> {
+    const client = StargateClient.create(createCometClient(this.rpcUrl));
+
+    try {
+      await client.getHeight();
+    } finally {
+      client.disconnect();
+    }
+  }
+
   async getDecimals(tokenAddress: string): Promise<number> {
     let denom = tokenAddress;
     if (tokenAddress === "0x0") {

@@ -28,6 +28,10 @@ export class EvmNetwork implements Network {
     this.confirmations = confirmations;
   }
 
+  async ping(): Promise<void> {
+    await this.provider.getBlockNumber();
+  }
+
   async getDecimals(tokenAddress: string): Promise<number> {
     if (tokenAddress === "0x0") {
       return this.nativeAssetDecimals;

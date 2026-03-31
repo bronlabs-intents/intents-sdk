@@ -21,6 +21,10 @@ export class TonNetwork implements Network {
     });
   }
 
+  async ping(): Promise<void> {
+    await this.request('/api/v3/masterchainInfo');
+  }
+
   async getDecimals(tokenAddress: string): Promise<number> {
     if (tokenAddress === "0x0") {
       return this.nativeAssetDecimals;

@@ -106,6 +106,11 @@ export class OrderIndexer {
 
     this.isRunning = false;
 
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
+    }
+
     if (this.reconnectTimeout) {
       clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
@@ -156,7 +161,10 @@ export class OrderIndexer {
     try {
       const wsAgent = getProxyAgent();
       const wsOptions = wsAgent ? { agent: wsAgent } : undefined;
-      const ws = new WebSocket(this.config.rpcUrl.replace(/^https?:\/\//, 'wss://'), wsOptions);
+      const wsUrl = this.config.rpcUrl
+        .replace(/^https:\/\//, 'wss://')
+        .replace(/^http:\/\//, 'ws://');
+      const ws = new WebSocket(wsUrl, wsOptions);
 
       ws.on('error', error => {
         if (!this.isRunning) return;
@@ -228,7 +236,7 @@ export class OrderIndexer {
         log.warn('WebSocket health check failed:', error);
         this.reconnectWebSocket();
       }
-    }, 60_000);
+    }, 30_000);
   }
 
   private reconnectWebSocket(): void {

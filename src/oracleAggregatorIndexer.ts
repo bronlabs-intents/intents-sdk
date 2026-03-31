@@ -165,7 +165,10 @@ export class OracleAggregatorIndexer {
     try {
       const wsAgent = getProxyAgent();
       const wsOptions = wsAgent ? { agent: wsAgent } : undefined;
-      const ws = new WebSocket(this.config.rpcUrl.replace(/^https?:\/\//, 'wss://'), wsOptions);
+      const wsUrl = this.config.rpcUrl
+        .replace(/^https:\/\//, 'wss://')
+        .replace(/^http:\/\//, 'ws://');
+      const ws = new WebSocket(wsUrl, wsOptions);
 
       ws.on('error', error => {
         if (!this.isRunning) return;
@@ -237,7 +240,7 @@ export class OracleAggregatorIndexer {
         log.warn('OracleAggregator WebSocket health check failed:', error);
         this.reconnectWebSocket();
       }
-    }, 60_000);
+    }, 30_000);
   }
 
   private reconnectWebSocket(): void {
