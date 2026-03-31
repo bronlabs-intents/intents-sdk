@@ -48,7 +48,7 @@ export class CantonNetwork implements Network {
   }
 
   async ping(): Promise<void> {
-    await this.nodeRequest({ method: 'GET', uri: '/api/sv/v0/sv' });
+    await this.nodeRequest({ method: 'GET', node: this.ledgerApiUrl, uri: '/v2/version' });
   }
 
   async getDecimals(tokenAddress: string): Promise<number> {
