@@ -208,7 +208,7 @@ export class XrpNetwork implements Network {
   }
 
   private parseTokenAddress(tokenAddress: string): { currency: string; issuer: string } {
-    const colonIndex = tokenAddress.indexOf(':');
+    const colonIndex = tokenAddress.indexOf('.');
 
     if (colonIndex === -1) {
       throw new Error(`Invalid XRP token address format: ${tokenAddress}. Expected "currency:issuer"`);

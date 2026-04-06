@@ -1,45 +1,9 @@
 import { Network, TransactionData } from './index.js';
 import { log } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
-import { decodeTxRaw, DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
-import { GasPrice, SigningStargateClient, StargateClient } from '@cosmjs/stargate';
+import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
+import { GasPrice, SigningStargateClient } from '@cosmjs/stargate';
 import { Tendermint37Client } from '@cosmjs/tendermint-rpc';
-import { MsgSend } from 'cosmjs-types/cosmos/bank/v1beta1/tx';
-
-class ProxyRpcClient {
-  private readonly url: string;
-
-  constructor(url: string) {
-    this.url = url;
-  }
-
-  disconnect() {}
-
-  async execute(request: any): Promise<any> {
-    const response = await proxyFetch(this.url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(request),
-    });
-
-    if (!response.ok) {
-      const body = await response.text().catch(() => '');
-      throw new Error(`Cosmos RPC request to ${this.url} failed: ${response.status} ${response.statusText} - ${body}`);
-    }
-
-    const json = await response.json() as any;
-
-    if (json.error) {
-      throw new Error(JSON.stringify(json.error));
-    }
-
-    return json;
-  }
-}
-
-function createCometClient(rpcUrl: string) {
-  return Tendermint37Client.create(new ProxyRpcClient(rpcUrl) as any);
-}
 
 export class CosmosNetwork implements Network {
   private readonly rpcUrl: string;
@@ -58,13 +22,7 @@ export class CosmosNetwork implements Network {
   }
 
   async ping(): Promise<void> {
-    const client = StargateClient.create(createCometClient(this.rpcUrl));
-
-    try {
-      await client.getHeight();
-    } finally {
-      client.disconnect();
-    }
+    await this.rpcCall('status');
   }
 
   async getDecimals(tokenAddress: string): Promise<number> {
@@ -74,18 +32,16 @@ export class CosmosNetwork implements Network {
     }
 
     const firstLetter = denom[0];
+
     if (firstLetter === 'u') {
-      // micro
       return 6;
     }
 
     if (firstLetter === 'a') {
-      // atto
       return 18;
     }
 
     if (firstLetter === 'n') {
-      // nano
       return 9;
     }
 
@@ -93,15 +49,15 @@ export class CosmosNetwork implements Network {
   }
 
   async getTxData(txHash: string, tokenAddress: string): Promise<TransactionData | undefined> {
-    const client = StargateClient.create(createCometClient(this.rpcUrl));
-    const resp = await client.getTx(txHash);
+    const hashBase64 = Buffer.from(txHash, 'hex').toString('base64');
+    const result = await this.rpcCall('tx', { hash: hashBase64, prove: false });
 
-    if (!resp) {
+    if (!result || !result.tx_result) {
       return;
     }
 
-    if (resp.code !== 0) {
-      log.warn(`Transaction ${txHash} failed on blockchain: ${JSON.stringify(resp)}`);
+    if (result.tx_result.code !== 0) {
+      log.warn(`Transaction ${txHash} failed on blockchain: code=${result.tx_result.code}`);
 
       return {
         from: "",
@@ -112,15 +68,11 @@ export class CosmosNetwork implements Network {
       }
     }
 
-    const decodedTx = decodeTxRaw(resp.tx)
+    const events = result.tx_result.events || [];
+    const transferEvent = events.find((e: any) => e.type === 'transfer');
 
-    const txMessage = decodedTx.body.messages.find(
-      (message) =>
-        message.typeUrl === '/cosmos.bank.v1beta1.MsgSend'
-    )
-
-    if (!txMessage) {
-      log.warn(`Transaction ${txHash} has no MsgSend message: ${JSON.stringify(resp)}`);
+    if (!transferEvent) {
+      log.warn(`Transaction ${txHash} has no transfer event`);
 
       return {
         from: "",
@@ -131,18 +83,18 @@ export class CosmosNetwork implements Network {
       }
     }
 
-    const decodedMsg = MsgSend.decode(txMessage.value)
+    const attrs = this.parseEventAttributes(transferEvent.attributes);
 
-    let denom = tokenAddress
-    // Native token - specified denom
+    let denom = tokenAddress;
     if (tokenAddress === "0x0") {
       denom = this.nativeDenom;
     }
 
-    const messageAmount = decodedMsg.amount.find((a: any) => a.denom === denom);
+    const amountStr = attrs.amount || '';
+    const amountMatch = amountStr.match(new RegExp(`(\\d+)${denom}`));
 
-    if (!messageAmount) {
-      log.warn(`Transaction ${txHash} has no amount for denom ${denom}: ${JSON.stringify(resp)}`);
+    if (!amountMatch) {
+      log.warn(`Transaction ${txHash} has no amount for denom ${denom}: ${amountStr}`);
 
       return {
         from: "",
@@ -153,42 +105,99 @@ export class CosmosNetwork implements Network {
       }
     }
 
-    const currentBlockResp = await client.getBlock()
-    const currentBlock = currentBlockResp.header.height
-
-    const txBlock = resp.height
+    const blockResult = await this.rpcCall('block');
+    const currentBlock = parseInt(blockResult.block.header.height);
+    const txBlock = parseInt(result.height);
 
     const confirmed = (currentBlock - txBlock) >= this.confirmations;
 
     log.info(`Confirmations ${txHash}: ${currentBlock}, confirmed: ${confirmed}`)
 
     return {
-      from: decodedMsg.fromAddress,
-      to: decodedMsg.toAddress,
+      from: attrs.sender || '',
+      to: attrs.recipient || '',
       token: tokenAddress,
-      amount: BigInt(messageAmount.amount),
-      confirmed: confirmed
+      amount: BigInt(amountMatch[1]),
+      confirmed
     }
   }
 
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string) {
-    // 1) Create wallet/signer
     const wallet = await DirectSecp256k1Wallet.fromKey(Buffer.from(privateKey, 'hex'), this.bech32);
     const [account] = await wallet.getAccounts();
     const sender = account.address;
 
-    // 2) Connect signing client
+    const cometClient = await Tendermint37Client.create({
+      execute: async (request: any) => {
+        const response = await proxyFetch(this.rpcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(request),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Cosmos RPC error: ${response.status}`);
+        }
+
+        const json = await response.json() as any;
+
+        if (json.error) {
+          throw new Error(JSON.stringify(json.error));
+        }
+
+        return json;
+      },
+      disconnect: () => {}
+    } as any);
+
     const gasPrice = GasPrice.fromString(`${this.gasPrice}${this.nativeDenom}`);
-    const client = SigningStargateClient.createWithSigner(createCometClient(this.rpcUrl), wallet, {gasPrice});
+    const client = await SigningStargateClient.createWithSigner(cometClient, wallet, { gasPrice });
 
     const denom = tokenAddress === "0x0" ? this.nativeDenom : tokenAddress;
-
-    // 3) Build amount (in *base* denom)
-    const amount = [{denom, amount: value.toString()}];
-
-    // CosmosJs simulates tx and do transfer
+    const amount = [{ denom, amount: value.toString() }];
     const resultAuto = await client.sendTokens(sender, to, amount, "auto");
 
     return resultAuto.transactionHash
+  }
+
+  private parseEventAttributes(attributes: any[]): Record<string, string> {
+    const result: Record<string, string> = {};
+
+    for (const attr of attributes) {
+      try {
+        const key = Buffer.from(attr.key, 'base64').toString('utf-8');
+        const value = attr.value ? Buffer.from(attr.value, 'base64').toString('utf-8') : '';
+        result[key] = value;
+      } catch {
+        result[attr.key] = attr.value || '';
+      }
+    }
+
+    return result;
+  }
+
+  private async rpcCall(method: string, params: Record<string, any> = {}): Promise<any> {
+    const resp = await proxyFetch(this.rpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 1,
+        method,
+        params
+      })
+    } as any);
+
+    if (!resp.ok) {
+      throw new Error(`Cosmos RPC error ${resp.status}: ${(await resp.text()).substring(0, 1024)}`);
+    }
+
+    const json = await resp.json() as any;
+
+    if (json.error) {
+      throw new Error(`Cosmos RPC error: ${JSON.stringify(json.error)}`);
+    }
+
+    return json.result;
   }
 }

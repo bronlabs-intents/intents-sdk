@@ -22,7 +22,7 @@ export class TonNetwork implements Network {
   }
 
   async ping(): Promise<void> {
-    await this.request('/api/v3/masterchainInfo');
+    await this.request("/api/v3/masterchainInfo");
   }
 
   async getDecimals(tokenAddress: string): Promise<number> {
