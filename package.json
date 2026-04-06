@@ -59,7 +59,8 @@
     "tron-format-address": "^0.1.12",
     "tronweb": "^6.0.4",
     "winston": "^3.17.0",
-    "ws": "^8.18.3"
+    "ws": "^8.18.3",
+    "xrpl": "^4.0.0"
   },
   "devDependencies": {
     "@types/big.js": "^6.2.2",
