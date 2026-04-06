@@ -47,8 +47,10 @@ export class XrpNetwork implements Network {
         return DEFAULT_ISSUED_CURRENCY_DECIMALS;
       }
 
-      const domain = Buffer.from(domainHex, 'hex').toString('utf-8');
-      const tomlUrl = `https://${domain}/.well-known/xrp-ledger.toml`;
+      const domain = Buffer.from(domainHex, 'hex').toString('utf-8').replace(/\/+$/, '');
+      const tomlUrl = domain.startsWith('http')
+        ? `${domain}/.well-known/xrp-ledger.toml`
+        : `https://${domain}/.well-known/xrp-ledger.toml`;
 
       const resp = await proxyFetch(tomlUrl);
 

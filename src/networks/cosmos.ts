@@ -22,7 +22,7 @@ export class CosmosNetwork implements Network {
   }
 
   async ping(): Promise<void> {
-    await this.rpcCall('status');
+    await this.rpcGet('status');
   }
 
   async getDecimals(tokenAddress: string): Promise<number> {
@@ -49,8 +49,7 @@ export class CosmosNetwork implements Network {
   }
 
   async getTxData(txHash: string, tokenAddress: string): Promise<TransactionData | undefined> {
-    const hashBase64 = Buffer.from(txHash, 'hex').toString('base64');
-    const result = await this.rpcCall('tx', { hash: hashBase64, prove: false });
+    const result = await this.rpcGet('tx', { hash: `0x${txHash}`, prove: 'false' });
 
     if (!result || !result.tx_result) {
       return;
@@ -105,7 +104,7 @@ export class CosmosNetwork implements Network {
       }
     }
 
-    const blockResult = await this.rpcCall('block');
+    const blockResult = await this.rpcGet('block');
     const currentBlock = parseInt(blockResult.block.header.height);
     const txBlock = parseInt(result.height);
 
@@ -176,17 +175,16 @@ export class CosmosNetwork implements Network {
     return result;
   }
 
-  private async rpcCall(method: string, params: Record<string, any> = {}): Promise<any> {
-    const resp = await proxyFetch(this.rpcUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        id: 1,
-        method,
-        params
-      })
-    } as any);
+  private async rpcGet(method: string, params: Record<string, string> = {}): Promise<any> {
+    const queryString = Object.entries(params)
+      .map(([k, v]) => `${k}=${encodeURIComponent(v)}`)
+      .join('&');
+
+    const url = queryString
+      ? `${this.rpcUrl}/${method}?${queryString}`
+      : `${this.rpcUrl}/${method}`;
+
+    const resp = await proxyFetch(url);
 
     if (!resp.ok) {
       throw new Error(`Cosmos RPC error ${resp.status}: ${(await resp.text()).substring(0, 1024)}`);
