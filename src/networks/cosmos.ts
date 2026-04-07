@@ -160,22 +160,22 @@ export class CosmosNetwork implements Network {
   }
 
   private parseEventAttributes(attributes: any[]): Record<string, string> {
+    const isPlainText = attributes.some((a: any) =>
+      ['sender', 'recipient', 'amount', 'spender', 'receiver'].includes(a.key)
+    );
+
     const result: Record<string, string> = {};
 
     for (const attr of attributes) {
-      const key = this.isBase64(attr.key) ? Buffer.from(attr.key, 'base64').toString('utf-8') : attr.key;
-      const value = attr.value
-        ? (this.isBase64(attr.value) ? Buffer.from(attr.value, 'base64').toString('utf-8') : attr.value)
-        : '';
-
-      result[key] = value;
+      if (isPlainText) {
+        result[attr.key] = attr.value || '';
+      } else {
+        result[Buffer.from(attr.key, 'base64').toString('utf-8')] =
+          attr.value ? Buffer.from(attr.value, 'base64').toString('utf-8') : '';
+      }
     }
 
     return result;
-  }
-
-  private isBase64(str: string): boolean {
-    return /^[A-Za-z0-9+/]+=*$/.test(str) && str.length % 4 === 0 && str.length >= 4;
   }
 
   private async rpcGet(method: string, params: Record<string, string> = {}): Promise<any> {
