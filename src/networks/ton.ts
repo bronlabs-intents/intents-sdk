@@ -22,7 +22,7 @@ export class TonNetwork implements Network {
   }
 
   async ping(): Promise<void> {
-    await this.request("/api/v3/masterchainInfo");
+    await this.request("/v3/masterchainInfo");
   }
 
   async getDecimals(tokenAddress: string): Promise<number> {
@@ -31,7 +31,7 @@ export class TonNetwork implements Network {
     }
 
     return memoize(`decimals-ton-${tokenAddress}`, 86400 * 1000, async () => {
-      const response = await this.request(`/api/v3/jetton/masters?address=${encodeURIComponent(tokenAddress)}`);
+      const response = await this.request(`/v3/jetton/masters?address=${encodeURIComponent(tokenAddress)}`);
 
       if (response.jetton_masters?.length > 0) {
         const master = response.jetton_masters[0];
@@ -51,10 +51,10 @@ export class TonNetwork implements Network {
     tokenAddress: string,
     recipientAddress: string
   ): Promise<TransactionData | undefined> {
-    const masterchainInfo = await this.request("/api/v3/masterchainInfo");
+    const masterchainInfo = await this.request("/v3/masterchainInfo");
     const currentSeqno = masterchainInfo.last?.seqno ?? 0;
 
-    const txResponse = await this.request(`/api/v3/transactions?hash=${encodeURIComponent(txHash)}&limit=1`);
+    const txResponse = await this.request(`/v3/transactions?hash=${encodeURIComponent(txHash)}&limit=1`);
 
     if (!txResponse.transactions?.length) {
       return;
@@ -230,7 +230,7 @@ export class TonNetwork implements Network {
     confirmed: boolean
   ): Promise<TransactionData | undefined> {
     const transfers = await this.request(
-      `/api/v3/jetton/transfers?transaction_hash=${encodeURIComponent(txHash)}&limit=10`
+      `/v3/jetton/transfers?transaction_hash=${encodeURIComponent(txHash)}&limit=10`
     );
 
     if (transfers.jetton_transfers?.length > 0) {
@@ -248,7 +248,7 @@ export class TonNetwork implements Network {
     }
 
     const transfersByMaster = await this.request(
-      `/api/v3/jetton/transfers?jetton_master=${encodeURIComponent(tokenAddress)}&limit=100`
+      `/v3/jetton/transfers?jetton_master=${encodeURIComponent(tokenAddress)}&limit=100`
     );
 
     if (!transfersByMaster.jetton_transfers?.length) {
@@ -275,7 +275,7 @@ export class TonNetwork implements Network {
 
   private async getJettonWalletAddress(jettonMaster: string, ownerAddress: string): Promise<string> {
     const response = await this.request(
-      `/api/v3/jetton/wallets?owner_address=${encodeURIComponent(ownerAddress)}&jetton_address=${encodeURIComponent(jettonMaster)}&limit=1`
+      `/v3/jetton/wallets?owner_address=${encodeURIComponent(ownerAddress)}&jetton_address=${encodeURIComponent(jettonMaster)}&limit=1`
     );
 
     if (response.jetton_wallets?.length > 0) {

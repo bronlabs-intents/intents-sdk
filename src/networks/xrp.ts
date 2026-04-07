@@ -36,43 +36,7 @@ export class XrpNetwork implements Network {
       return this.nativeAssetDecimals;
     }
 
-    const { issuer, currency } = this.parseTokenAddress(tokenAddress);
-
-    try {
-      const accountInfo = await this.rpcCall('account_info', { account: issuer, ledger_index: 'validated' });
-      const domainHex = accountInfo?.account_data?.Domain;
-
-      if (!domainHex) {
-        log.warn(`XRP issuer ${issuer} has no Domain field, using default decimals ${DEFAULT_ISSUED_CURRENCY_DECIMALS}`);
-        return DEFAULT_ISSUED_CURRENCY_DECIMALS;
-      }
-
-      const domain = Buffer.from(domainHex, 'hex').toString('utf-8').replace(/\/+$/, '');
-      const tomlUrl = domain.startsWith('http')
-        ? `${domain}/.well-known/xrp-ledger.toml`
-        : `https://${domain}/.well-known/xrp-ledger.toml`;
-
-      const resp = await proxyFetch(tomlUrl);
-
-      if (!resp.ok) {
-        log.warn(`Failed to fetch ${tomlUrl}: ${resp.status}, using default decimals`);
-        return DEFAULT_ISSUED_CURRENCY_DECIMALS;
-      }
-
-      const toml = await resp.text();
-      const decimals = this.parseTomlDecimals(toml, currency);
-
-      if (decimals !== null) {
-        log.info(`Fetched decimals for ${currency}:${issuer} from ${tomlUrl}: ${decimals}`);
-        return decimals;
-      }
-
-      log.warn(`No display_decimals found for ${currency} in ${tomlUrl}, using default ${DEFAULT_ISSUED_CURRENCY_DECIMALS}`);
-      return DEFAULT_ISSUED_CURRENCY_DECIMALS;
-    } catch (e) {
-      log.warn(`Failed to fetch decimals for ${tokenAddress}: ${e}, using default ${DEFAULT_ISSUED_CURRENCY_DECIMALS}`);
-      return DEFAULT_ISSUED_CURRENCY_DECIMALS;
-    }
+    return DEFAULT_ISSUED_CURRENCY_DECIMALS;
   }
 
   async getTxData(
@@ -220,21 +184,6 @@ export class XrpNetwork implements Network {
       currency: tokenAddress.substring(0, colonIndex),
       issuer: tokenAddress.substring(colonIndex + 1)
     };
-  }
-
-  private parseTomlDecimals(toml: string, currency: string): number | null {
-    const sections = toml.split('[[CURRENCIES]]');
-
-    for (const section of sections) {
-      const codeMatch = section.match(/code\s*=\s*"([^"]+)"/);
-      const decimalsMatch = section.match(/display_decimals\s*=\s*(\d+)/);
-
-      if (codeMatch && codeMatch[1] === currency && decimalsMatch) {
-        return parseInt(decimalsMatch[1]);
-      }
-    }
-
-    return null;
   }
 
   private async getCurrentValidatedLedger(): Promise<number> {
