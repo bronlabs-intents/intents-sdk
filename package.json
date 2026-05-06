@@ -73,6 +73,10 @@
   "engines": {
     "node": ">=22.0.0"
   },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
   "pnpm": {
     "overrides": {
       "undici-types": "^7.16.0"
