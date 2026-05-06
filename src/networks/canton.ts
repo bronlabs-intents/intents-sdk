@@ -135,23 +135,43 @@ export class CantonNetwork implements Network {
     }
 
     if (tokenAddress === '0x0') {
+      // Legacy pre-0.5.16: fall back to root AmuletRules_Transfer
       const transfer: any = events.find(e => e.ExercisedEvent?.choice === 'AmuletRules_Transfer');
+      if (transfer != null) {
 
-      const output = transfer?.ExercisedEvent?.choiceArgument?.transfer?.outputs[0] || {
-        receiver: '',
-        amount: '0'
-      };
+        const output = transfer?.ExercisedEvent?.choiceArgument?.transfer?.outputs[0] || {
+          receiver: '',
+          amount: '0'
+        };
 
-      const from = transfer?.ExercisedEvent?.choiceArgument?.transfer?.sender || "";
-      const amount = BigInt(Big(output.amount).mul(Big(10).pow(this.nativeAssetDecimals)).toFixed(0));
+        const from = transfer?.ExercisedEvent?.choiceArgument?.transfer?.sender || "";
+        const amount = BigInt(Big(output.amount).mul(Big(10).pow(this.nativeAssetDecimals)).toFixed(0));
 
-      return {
-        from,
-        to: output.receiver,
-        token: tokenAddress,
-        amount,
-        confirmed: true
-      };
+        return {
+          from,
+          to: output.receiver,
+          token: tokenAddress,
+          amount,
+          confirmed: true
+        };
+      } else {
+        // after 0.5.16
+        const arg = transferFactoryEvent.ExercisedEvent?.choiceArgument?.transfer;
+
+        if (!arg) {
+          throw new Error(`Transaction ${txHash} has TransferInstructionResult_Completed but no transfer args: ${JSON.stringify(txValue)}`);
+        }
+
+        const amount = BigInt(Big(arg.amount).mul(Big(10).pow(this.nativeAssetDecimals)).toFixed(0));
+
+        return {
+          from: arg.sender,
+          to: arg.receiver,
+          token: tokenAddress,
+          amount,
+          confirmed: true
+        };
+      }
     }
 
     // tokens
