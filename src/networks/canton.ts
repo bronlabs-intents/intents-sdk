@@ -118,9 +118,10 @@ export class CantonNetwork implements Network {
       return
     }
 
-    const isSuccess = tokenAddress === '0x0' ?
-      transferFactoryResultTag === 'TransferInstructionResult_Completed' :
-      transferFactoryResultTag === 'TransferInstructionResult_Pending';
+    const isCompleted = transferFactoryResultTag === 'TransferInstructionResult_Completed';
+    const isPending = transferFactoryResultTag === 'TransferInstructionResult_Pending';
+
+    const isSuccess = tokenAddress === '0x0' ? isCompleted : (isCompleted || isPending);
 
     if (!isSuccess) {
       log.error(`Transaction ${txHash} failed: ${(transferFactoryResultTag ?? 'Unknown')}`);
@@ -185,6 +186,20 @@ export class CantonNetwork implements Network {
     const amount = arg?.amount;
     const txTokenAddress = arg?.instrumentId?.admin + ':::' + arg?.instrumentId?.id;
     const tokenDecimals = await this.getDecimals(txTokenAddress);
+
+    if (isCompleted) {
+      if (!arg) {
+        throw new Error(`Transaction ${txHash} has token TransferInstructionResult_Completed but no transfer args: ${JSON.stringify(txValue)}`);
+      }
+
+      return {
+        from: sender,
+        to: receiver,
+        token: txTokenAddress,
+        amount: ethers.parseUnits(amount, tokenDecimals),
+        confirmed: true
+      };
+    }
 
     const eventsByContract = await this.nodeRequest({
       node: this.ledgerApiUrl,
