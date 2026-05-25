@@ -99,7 +99,7 @@ export interface OrderEngineContract {
   executeSolverTimeout(orderId: string, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
 }
 
-export interface f {
+export interface OracleAggregatorContract {
   'oracleConfirmUserTx(string,bool,uint256)'(orderId: string, isConfirmed: boolean, roundId: bigint, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
 
   'oracleConfirmUserTx(string,bool)'(orderId: string, isConfirmed: boolean, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
