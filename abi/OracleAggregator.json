@@ -21,6 +21,11 @@
   },
   {
     "inputs": [],
+    "name": "OA_INVALID_ROUND",
+    "type": "error"
+  },
+  {
+    "inputs": [],
     "name": "OA_INVALID_STATUS",
     "type": "error"
   },
@@ -102,6 +107,31 @@
       }
     ],
     "name": "IntentOraclesInitialized",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": false,
+        "internalType": "string",
+        "name": "orderId",
+        "type": "string"
+      },
+      {
+        "indexed": false,
+        "internalType": "address",
+        "name": "oracle",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "isUserTx",
+        "type": "bool"
+      }
+    ],
+    "name": "OracleConfirmSkipped",
     "type": "event"
   },
   {
@@ -660,9 +690,55 @@
         "internalType": "bool",
         "name": "_isConfirmed",
         "type": "bool"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_roundId",
+        "type": "uint256"
       }
     ],
     "name": "oracleConfirmSolverTx",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      },
+      {
+        "internalType": "bool",
+        "name": "_isConfirmed",
+        "type": "bool"
+      }
+    ],
+    "name": "oracleConfirmSolverTx",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      },
+      {
+        "internalType": "bool",
+        "name": "_isConfirmed",
+        "type": "bool"
+      },
+      {
+        "internalType": "uint256",
+        "name": "_roundId",
+        "type": "uint256"
+      }
+    ],
+    "name": "oracleConfirmUserTx",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

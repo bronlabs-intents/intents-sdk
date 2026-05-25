@@ -226,51 +226,55 @@ export class TonNetwork implements Network {
   private async parseJettonTransfer(
     txHash: string,
     tokenAddress: string,
-    _recipientAddress: string,
+    recipientAddress: string,
     confirmed: boolean
   ): Promise<TransactionData | undefined> {
-    const transfers = await this.request(
-      `/v3/jetton/transfers?transaction_hash=${encodeURIComponent(txHash)}&limit=10`
+    // The jetton transfer is emitted by the sender's jetton-wallet tx — a child of the user-wallet tx
+    // whose hash we are given. Walk the trace to collect every related tx hash, then look up the
+    // jetton transfer record by master+recipient and match by tx hash from the trace.
+    const traceResp = await this.request(
+      `/v3/traces?tx_hash=${encodeURIComponent(txHash)}&limit=1`
     );
 
-    if (transfers.jetton_transfers?.length > 0) {
-      const transfer = transfers.jetton_transfers[0];
-      const fromAddress = this.normalizeAddress(transfer.source?.address || transfer.source);
-      const destAddress = this.normalizeAddress(transfer.destination?.address || transfer.destination);
-
-      return {
-        from: fromAddress,
-        to: destAddress,
-        token: tokenAddress,
-        amount: BigInt(transfer.amount || 0),
-        confirmed
-      };
-    }
-
-    const transfersByMaster = await this.request(
-      `/v3/jetton/transfers?jetton_master=${encodeURIComponent(tokenAddress)}&limit=100`
-    );
-
-    if (!transfersByMaster.jetton_transfers?.length) {
+    const trace = traceResp.traces?.[0]?.trace;
+    if (!trace) {
       return;
     }
 
-    for (const transfer of transfersByMaster.jetton_transfers) {
-      if (transfer.transaction_hash === txHash) {
-        const fromAddress = this.normalizeAddress(transfer.source?.address || transfer.source);
-        const destAddress = this.normalizeAddress(transfer.destination?.address || transfer.destination);
-
-        return {
-          from: fromAddress,
-          to: destAddress,
-          token: tokenAddress,
-          amount: BigInt(transfer.amount || 0),
-          confirmed
-        };
+    const traceTxHashes = new Set<string>();
+    const walk = (node: any): void => {
+      if (node?.tx_hash) {
+        traceTxHashes.add(node.tx_hash);
       }
+      for (const child of node?.children ?? []) {
+        walk(child);
+      }
+    };
+    walk(trace);
+
+    const resp = await this.request(
+      `/v3/jetton/transfers?jetton_master=${encodeURIComponent(tokenAddress)}` +
+      `&address=${encodeURIComponent(recipientAddress)}&limit=50`
+    );
+
+    const transfer = (resp.jetton_transfers ?? []).find(
+      (t: any) => typeof t.transaction_hash === "string" && traceTxHashes.has(t.transaction_hash)
+    );
+
+    if (!transfer) {
+      return;
     }
 
-    return;
+    const fromAddress = this.normalizeAddress(transfer.source?.address || transfer.source);
+    const destAddress = this.normalizeAddress(transfer.destination?.address || transfer.destination);
+
+    return {
+      from: fromAddress,
+      to: destAddress,
+      token: tokenAddress,
+      amount: BigInt(transfer.amount || 0),
+      confirmed
+    };
   }
 
   private async getJettonWalletAddress(jettonMaster: string, ownerAddress: string): Promise<string> {
