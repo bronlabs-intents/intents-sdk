@@ -713,47 +713,11 @@
         "internalType": "bool",
         "name": "_isConfirmed",
         "type": "bool"
-      }
-    ],
-    "name": "oracleConfirmSolverTx",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string",
-        "name": "_orderId",
-        "type": "string"
-      },
-      {
-        "internalType": "bool",
-        "name": "_isConfirmed",
-        "type": "bool"
       },
       {
         "internalType": "uint256",
         "name": "_roundId",
         "type": "uint256"
-      }
-    ],
-    "name": "oracleConfirmUserTx",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string",
-        "name": "_orderId",
-        "type": "string"
-      },
-      {
-        "internalType": "bool",
-        "name": "_isConfirmed",
-        "type": "bool"
       }
     ],
     "name": "oracleConfirmUserTx",

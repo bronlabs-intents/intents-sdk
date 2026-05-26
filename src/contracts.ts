@@ -100,13 +100,9 @@ export interface OrderEngineContract {
 }
 
 export interface OracleAggregatorContract {
-  'oracleConfirmUserTx(string,bool,uint256)'(orderId: string, isConfirmed: boolean, roundId: bigint, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
+  oracleConfirmUserTx(orderId: string, isConfirmed: boolean, roundId: bigint, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
 
-  'oracleConfirmUserTx(string,bool)'(orderId: string, isConfirmed: boolean, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
-
-  'oracleConfirmSolverTx(string,bool,uint256)'(orderId: string, isConfirmed: boolean, roundId: bigint, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
-
-  'oracleConfirmSolverTx(string,bool)'(orderId: string, isConfirmed: boolean, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
+  oracleConfirmSolverTx(orderId: string, isConfirmed: boolean, roundId: bigint, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
 
   getOracleSubscribedNetworks(oracle: string): Promise<string[]>;
 
