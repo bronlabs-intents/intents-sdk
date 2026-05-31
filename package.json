@@ -76,10 +76,5 @@
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",
     "access": "public"
-  },
-  "pnpm": {
-    "overrides": {
-      "undici-types": "^7.16.0"
-    }
   }
 }
