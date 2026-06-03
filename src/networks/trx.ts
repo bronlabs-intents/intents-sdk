@@ -1,9 +1,13 @@
-import { fromHex } from "tron-format-address";
+import { fromHex, toHex } from "tron-format-address";
 import { TronWeb } from "tronweb";
 
 import { Network, TransactionData } from "./index.js";
 import { log, memoize } from "../utils.js";
 import { proxyFetch } from '../proxy.js';
+
+const TRC20_TRANSFER_TOPIC = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
+const addrBody = (s: string): string => (s || "").replace(/^0x/, "").toLowerCase().slice(-40);
 
 export class TrxNetwork implements Network {
   private readonly rpcUrl: string;
@@ -60,7 +64,8 @@ export class TrxNetwork implements Network {
 
   async getTxData(
     txHash: string,
-    tokenAddress: string
+    tokenAddress: string,
+    recipientAddress: string
   ): Promise<TransactionData | undefined> {
     const currentBlock = await this.request(`/wallet/getblockbylatestnum`, {
       method: "POST",
@@ -150,25 +155,38 @@ export class TrxNetwork implements Network {
       };
     }
 
-    // Fetch transaction to get owner_address (sender)
-    const txResponse = await this.request(`/wallet/gettransactionbyid`, {
-      method: "POST",
-      headers: {
-        accept: "application/json",
-        "content-type": "application/json"
-      },
-      body: JSON.stringify({ value: txHash })
-    });
+    // TRC20 — trust only a Transfer emitted by the token contract itself, to the expected
+    // recipient. Reading log[0] blindly lets approve() / events from other contracts satisfy
+    // validation with no real transfer.
+    const tokenBody = addrBody(toHex(tokenAddress));
+    const recipientBody = addrBody(toHex(recipientAddress));
 
-    const from = txResponse?.raw_data?.contract?.[0]?.parameter?.value?.owner_address
-      ? fromHex(txResponse.raw_data.contract[0].parameter.value.owner_address)
-      : "";
+    const transferLog = (response.log || []).find((l: any) =>
+      addrBody(l.address) === tokenBody &&
+      (l.topics?.[0] || "").replace(/^0x/, "").toLowerCase() === TRC20_TRANSFER_TOPIC &&
+      l.topics?.length === 3 &&
+      addrBody(l.topics[2]) === recipientBody
+    );
+
+    if (!transferLog) {
+      log.warn(`Transaction ${txHash} has no TRC20 Transfer of ${tokenAddress} to ${recipientAddress}`);
+
+      return {
+        from: "",
+        to: "",
+        token: "",
+        amount: 0n,
+        confirmed
+      };
+    }
+
+    const amountHex = (transferLog.data || "").replace(/^0x/, "");
 
     return {
-      from,
-      to: fromHex("0x" + response.log[0].topics[2].toString().slice(24)),
-      token: fromHex(response.contract_address),
-      amount: BigInt(parseInt(response.log[0].data, 16)),
+      from: fromHex("0x" + addrBody(transferLog.topics[1])),
+      to: fromHex("0x" + addrBody(transferLog.topics[2])),
+      token: fromHex("0x" + tokenBody),
+      amount: amountHex ? BigInt("0x" + amountHex) : 0n,
       confirmed
     };
   }

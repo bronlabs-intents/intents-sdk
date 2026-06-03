@@ -4,12 +4,15 @@ import { Network, TransactionData } from './index.js';
 import { log, memoize } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 
+const ERC20_TRANSFER_TOPIC = ethers.id('Transfer(address,address,uint256)');
+
 interface EthTransactionReceipt {
   status: string;
   from: string;
   to: string;
   blockNumber: string;
   logs: {
+    address: string;
     topics: string[];
     data: string;
   }[];
@@ -58,7 +61,7 @@ export class EvmNetwork implements Network {
     });
   }
 
-  async getTxData(txHash: string, tokenAddress: string): Promise<TransactionData | undefined> {
+  async getTxData(txHash: string, tokenAddress: string, recipientAddress: string): Promise<TransactionData | undefined> {
     const currentBlock = await this.provider.getBlockNumber();
 
     const { result: receiptResult } = await proxyFetch(this.rpcUrl, {
@@ -120,12 +123,33 @@ export class EvmNetwork implements Network {
       };
     }
 
-    // ERC20 token
+    // ERC20 token — trust only a Transfer emitted by the token contract itself, to the expected
+    // recipient. Reading logs[0] blindly lets approve() / events from other contracts satisfy
+    // validation with no real transfer.
+    const transferLog = receipt.logs.find(l =>
+      l.address?.toLowerCase() === tokenAddress.toLowerCase() &&
+      l.topics[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC.toLowerCase() &&
+      l.topics.length === 3 &&
+      ('0x' + l.topics[2].slice(26)).toLowerCase() === recipientAddress.toLowerCase()
+    );
+
+    if (!transferLog) {
+      log.warn(`Transaction ${txHash} has no ERC20 Transfer of ${tokenAddress} to ${recipientAddress}`);
+
+      return {
+        from: "",
+        to: "",
+        token: "",
+        amount: 0n,
+        confirmed
+      };
+    }
+
     return {
-      from: receipt.from,
-      to: '0x' + receipt.logs[0].topics[2].slice(26),
-      token: receipt.to,
-      amount: BigInt(receipt.logs[0].data),
+      from: '0x' + transferLog.topics[1].slice(26),
+      to: '0x' + transferLog.topics[2].slice(26),
+      token: transferLog.address,
+      amount: BigInt(transferLog.data),
       confirmed
     };
   }
