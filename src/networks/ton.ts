@@ -92,6 +92,9 @@ export class TonNetwork implements Network {
     return this.parseJettonTransfer(txHash, tokenAddress, recipientAddress, confirmed);
   }
 
+  /**
+   * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.
+   */
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {
     const keyPair = this.parsePrivateKey(privateKey);
 
@@ -258,7 +261,11 @@ export class TonNetwork implements Network {
     );
 
     const transfer = (resp.jetton_transfers ?? []).find(
-      (t: any) => typeof t.transaction_hash === "string" && traceTxHashes.has(t.transaction_hash)
+      (t: any) =>
+        typeof t.transaction_hash === "string" &&
+        traceTxHashes.has(t.transaction_hash) &&
+        t.transaction_aborted !== true &&
+        this.addressesMatch(this.normalizeAddress(t.destination?.address || t.destination), recipientAddress)
     );
 
     if (!transfer) {

@@ -48,7 +48,7 @@ export class CosmosNetwork implements Network {
     return 0;
   }
 
-  async getTxData(txHash: string, tokenAddress: string): Promise<TransactionData | undefined> {
+  async getTxData(txHash: string, tokenAddress: string, recipientAddress: string): Promise<TransactionData | undefined> {
     const result = await this.rpcGet('tx', { hash: `0x${txHash}`, prove: 'false' });
 
     if (!result || !result.tx_result) {
@@ -67,33 +67,23 @@ export class CosmosNetwork implements Network {
       }
     }
 
-    const events = result.tx_result.events || [];
-    const transferEvent = events.find((e: any) => e.type === 'transfer');
-
-    if (!transferEvent) {
-      log.warn(`Transaction ${txHash} has no transfer event`);
-
-      return {
-        from: "",
-        to: "",
-        token: "",
-        amount: 0n,
-        confirmed: false
-      }
-    }
-
-    const attrs = this.parseEventAttributes(transferEvent.attributes);
-
     let denom = tokenAddress;
     if (tokenAddress === "0x0") {
       denom = this.nativeDenom;
     }
 
-    const amountStr = attrs.amount || '';
-    const amountMatch = amountStr.match(new RegExp(`(\\d+)${denom}`));
+    // Pick the transfer event addressed to the expected recipient — the first transfer event is
+    // usually the fee payment (sender → fee_collector), not the actual send.
+    const transfer = (result.tx_result.events || [])
+      .filter((e: any) => e.type === 'transfer')
+      .map((e: any) => this.parseEventAttributes(e.attributes))
+      .find((attrs: Record<string, string>) =>
+        attrs.recipient?.toLowerCase() === recipientAddress?.toLowerCase() &&
+        this.parseDenomAmount(attrs.amount || '', denom) !== null
+      );
 
-    if (!amountMatch) {
-      log.warn(`Transaction ${txHash} has no amount for denom ${denom}: ${amountStr}`);
+    if (!transfer) {
+      log.warn(`Transaction ${txHash} has no transfer of ${denom} to ${recipientAddress}`);
 
       return {
         from: "",
@@ -113,14 +103,17 @@ export class CosmosNetwork implements Network {
     log.info(`Confirmations ${txHash}: ${currentBlock}, confirmed: ${confirmed}`)
 
     return {
-      from: attrs.sender || '',
-      to: attrs.recipient || '',
+      from: transfer.sender || '',
+      to: transfer.recipient || '',
       token: tokenAddress,
-      amount: BigInt(amountMatch[1]),
+      amount: this.parseDenomAmount(transfer.amount || '', denom)!,
       confirmed
     }
   }
 
+  /**
+   * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.
+   */
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string) {
     const wallet = await DirectSecp256k1Wallet.fromKey(Buffer.from(privateKey, 'hex'), this.bech32);
     const [account] = await wallet.getAccounts();
@@ -157,6 +150,18 @@ export class CosmosNetwork implements Network {
     const resultAuto = await client.sendTokens(sender, to, amount, "auto");
 
     return resultAuto.transactionHash
+  }
+
+  private parseDenomAmount(amountStr: string, denom: string): bigint | null {
+    for (const coin of amountStr.split(',')) {
+      const match = coin.trim().match(/^(\d+)(.+)$/);
+
+      if (match && match[2] === denom) {
+        return BigInt(match[1]);
+      }
+    }
+
+    return null;
   }
 
   private parseEventAttributes(attributes: any[]): Record<string, string> {

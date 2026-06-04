@@ -117,11 +117,25 @@ export class TrxNetwork implements Network {
 
       log.info(`Confirmations ${txHash}: ${currentBlock - blockNumber}`);
 
+      const contract = response.raw_data?.contract?.[0];
+
+      if (contract?.type !== "TransferContract") {
+        log.warn(`Transaction ${txHash} is not a native TRX transfer: ${contract?.type}`);
+
+        return {
+          from: "",
+          to: "",
+          token: "",
+          amount: 0n,
+          confirmed
+        };
+      }
+
       return {
-        from: fromHex(response.raw_data.contract[0].parameter.value.owner_address),
-        to: fromHex(response.raw_data.contract[0].parameter.value.to_address),
+        from: fromHex(contract.parameter.value.owner_address),
+        to: fromHex(contract.parameter.value.to_address),
         token: tokenAddress,
-        amount: BigInt(response.raw_data.contract[0].parameter.value.amount),
+        amount: BigInt(contract.parameter.value.amount),
         confirmed
       };
     }
@@ -191,6 +205,9 @@ export class TrxNetwork implements Network {
     };
   }
 
+  /**
+   * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.
+   */
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {
     // Set private key
     this.tronWeb.setPrivateKey(privateKey);

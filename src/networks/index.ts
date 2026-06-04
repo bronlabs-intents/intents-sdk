@@ -25,6 +25,9 @@ export interface Network {
 
   getTxData(txHash: string, tokenAddress: string, recipientAddress: string): Promise<TransactionData | undefined>;
 
+  /**
+   * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.
+   */
   transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string>;
 
   readonly retryDelay: number;

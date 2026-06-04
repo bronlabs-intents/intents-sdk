@@ -154,6 +154,9 @@ export class EvmNetwork implements Network {
     };
   }
 
+  /**
+   * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.
+   */
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {
     const signer = new ethers.Wallet(privateKey, this.provider);
 

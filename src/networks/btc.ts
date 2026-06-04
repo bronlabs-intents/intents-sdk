@@ -78,11 +78,11 @@ export class BtcNetwork implements Network {
       }
       // coinbase transactions have no sender
 
-      const output = tx.vout.find(vout =>
+      const outputs = tx.vout.filter(vout =>
         vout.scriptPubKey.address === recipientAddress || vout.scriptPubKey.addresses?.includes(recipientAddress)
       );
 
-      if (!output) {
+      if (outputs.length === 0) {
         log.warn(`Transaction ${txHash} has no output to ${recipientAddress}: ${JSON.stringify(tx.vout, null, 2)}`);
 
         return {
@@ -96,11 +96,13 @@ export class BtcNetwork implements Network {
 
       log.info(`Confirmations ${txHash}: ${tx.confirmations}`);
 
+      const amount = outputs.reduce((sum, o) => sum + BigInt(Math.round(Number(o.value) * 1e8)), 0n);
+
       return {
         from,
         to: recipientAddress,
         token: tokenAddress,
-        amount: BigInt(Math.round(Number(output.value) * 1e8)),
+        amount,
         confirmed: tx.confirmations >= this.confirmations
       };
     } catch (error) {
@@ -109,6 +111,9 @@ export class BtcNetwork implements Network {
     }
   }
 
+  /**
+   * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.
+   */
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {
     if (tokenAddress !== "0x0") {
       throw new Error("Don't support tokens for BTC network");

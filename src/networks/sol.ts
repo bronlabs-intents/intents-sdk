@@ -47,7 +47,8 @@ export class SolNetwork implements Network {
 
   async getTxData(
     txHash: string,
-    tokenAddress: string
+    tokenAddress: string,
+    recipientAddress: string
   ): Promise<TransactionData | undefined> {
     const currentBlock = await proxyFetch(this.rpcUrl, {
       method: 'POST',
@@ -97,23 +98,26 @@ export class SolNetwork implements Network {
     const txSigner = result.transaction.message.accountKeys[0];
 
     if (tokenAddress === "0x0") {
-      if (Number(result.meta.postBalances[0] - result.meta.preBalances[0]) > 0) {
+      const accountKeys = result.transaction.message.accountKeys;
+      const idx = accountKeys.findIndex((key: string) => key === recipientAddress);
+
+      if (idx === -1) {
         return {
-          from: txSigner,
-          to: result.transaction.message.accountKeys[0],
-          token: tokenAddress,
-          amount: BigInt(result.meta.postBalances[0]) - BigInt(result.meta.preBalances[0]),
+          from: "",
+          to: "",
+          token: "",
+          amount: 0n,
           confirmed
         };
-      } else {
-        return {
-          from: txSigner,
-          to: result.transaction.message.accountKeys[1],
-          token: tokenAddress,
-          amount: BigInt(result.meta.postBalances[1]) - BigInt(result.meta.preBalances[1]),
-          confirmed
-        }
       }
+
+      return {
+        from: txSigner,
+        to: accountKeys[idx],
+        token: tokenAddress,
+        amount: BigInt(result.meta.postBalances[idx]) - BigInt(result.meta.preBalances[idx]),
+        confirmed
+      };
     }
 
     // ERC20 token
@@ -152,6 +156,9 @@ export class SolNetwork implements Network {
     };
   }
 
+  /**
+   * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.
+   */
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {
     const keypair = this.base58ToKeypair(privateKey);
 

@@ -268,6 +268,9 @@ export class CantonNetwork implements Network {
     }
   }
 
+  /**
+   * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.
+   */
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {
     if (tokenAddress != '0x0') {
       throw new Error("Canton does not support tokens");
