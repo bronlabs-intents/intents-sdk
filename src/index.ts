@@ -7,6 +7,7 @@ export * from './contracts.js';
 export * from './utils.js';
 export { configureProxy, getProxyAgent, proxyFetch } from './proxy.js';
 export { initNetworks } from './networks/index.js';
+export * from './token.js';
 
 // Monkey-patch BigInt.prototype.toJSON
 (BigInt.prototype as any).toJSON = function () {

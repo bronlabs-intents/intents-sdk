@@ -34,7 +34,8 @@
   ],
   "scripts": {
     "build": "pnpm run clean && tsc",
-    "clean": "rimraf dist"
+    "clean": "rimraf dist",
+    "test": "vitest run"
   },
   "dependencies": {
     "@cosmjs/proto-signing": "^0.37.0",
@@ -68,7 +69,8 @@
     "@types/node-fetch": "^2.6.12",
     "@types/ws": "^8.18.1",
     "rimraf": "^6.0.1",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "vitest": "^4.0.15"
   },
   "engines": {
     "node": ">=22.0.0"
