@@ -1,16 +1,19 @@
 import { Connection, Transaction, SystemProgram, Keypair, PublicKey } from "@solana/web3.js";
 import { createTransferInstruction, getOrCreateAssociatedTokenAccount } from "@solana/spl-token";
 import bs58 from "bs58";
+import { ethers } from 'ethers';
 
 import { Network, TransactionData } from "./index.js";
+import { AttestationCapable, SignatureScheme, verifyEd25519 } from '../attestation.js';
 import { log, memoize } from "../utils.js";
 import { proxyFetch } from '../proxy.js';
 
-export class SolNetwork implements Network {
+export class SolNetwork implements Network, AttestationCapable {
   private readonly rpcUrl: string;
   private readonly confirmations: number;
-  private readonly nativeAssetDecimals: number = 9; // SOL has 9 decimals
+  private readonly nativeAssetDecimals: number = 9;
   readonly retryDelay: number = 5000;
+  readonly signatureScheme = SignatureScheme.Ed25519;
   private readonly connection: Connection;
 
   constructor(rpcUrl: string, confirmations: number = 20) {
@@ -21,6 +24,20 @@ export class SolNetwork implements Network {
 
   async ping(): Promise<void> {
     await this.connection.getSlot();
+  }
+
+  addressFromPublicKey(publicKey: string): string {
+    const bytes = ethers.getBytes(publicKey);
+
+    if (bytes.length !== 32) {
+      throw new Error(`Invalid Solana public key length: ${bytes.length} (expected 32)`);
+    }
+
+    return new PublicKey(Buffer.from(bytes)).toBase58();
+  }
+
+  verifyAttestation(publicKey: string, signature: string, preimage: Uint8Array): Promise<boolean> {
+    return verifyEd25519(publicKey, signature, preimage);
   }
 
   async getDecimals(tokenAddress: string): Promise<number> {
@@ -93,12 +110,15 @@ export class SolNetwork implements Network {
 
     log.info(`Confirmations ${txHash}: ${currentBlock - blockNumber}`);
 
-    // Native token - SOL
-    // accountKeys[0] is the fee payer (first signer) by Solana protocol
-    const txSigner = result.transaction.message.accountKeys[0];
+    // `from` must be the account that actually FUNDED the transfer, not accountKeys[0] (the fee
+    // payer). Returning the fee payer lets an attacker fund a settlement from an address they don't
+    // control while signing with a throwaway fee payer that derives to the declared orderFrom —
+    // the oracle's senderValid would then check the wrong account.
+    const accountKeys: string[] = result.transaction.message.accountKeys;
+    const numSigners: number = result.transaction.message.header?.numRequiredSignatures ?? 1;
+    const isSigner = (i: number) => i < numSigners;
 
     if (tokenAddress === "0x0") {
-      const accountKeys = result.transaction.message.accountKeys;
       const idx = accountKeys.findIndex((key: string) => key === recipientAddress);
 
       if (idx === -1) {
@@ -111,11 +131,29 @@ export class SolNetwork implements Network {
         };
       }
 
+      const amount = BigInt(result.meta.postBalances[idx]) - BigInt(result.meta.preBalances[idx]);
+
+      // funder = a signing account (other than the recipient) whose lamports dropped by at least the
+      // credited amount. Attribution must be unambiguous: with several qualifying signers we cannot
+      // tell which one funded the transfer, so fail closed (empty from → senderValid fails).
+      const funders: string[] = [];
+      for (let i = 0; i < accountKeys.length; i++) {
+        if (i === idx || !isSigner(i)) {
+          continue;
+        }
+        const decrease = BigInt(result.meta.preBalances[i]) - BigInt(result.meta.postBalances[i]);
+        if (decrease >= amount) {
+          funders.push(accountKeys[i]);
+        }
+      }
+
+      const from = funders.length === 1 ? funders[0] : "";
+
       return {
-        from: txSigner,
+        from,
         to: accountKeys[idx],
         token: tokenAddress,
-        amount: BigInt(result.meta.postBalances[idx]) - BigInt(result.meta.preBalances[idx]),
+        amount,
         confirmed
       };
     }
@@ -125,7 +163,6 @@ export class SolNetwork implements Network {
     const preTokenBalances = result.meta.preTokenBalances.filter((balance: any) => balance.mint === tokenAddress)
 
     const senderAddress = (() => {
-      // Find the account that has less tokens in postTokenBalances than in preTokenBalances
       for (const postBalance of postTokenBalances) {
         const preBalance = preTokenBalances.find((balance: any) =>
           balance.owner === postBalance.owner
@@ -136,19 +173,34 @@ export class SolNetwork implements Network {
         }
       }
 
-      throw new Error("No sender found");
+      return "";
     })();
 
-    const postTokenBalanceOfReceiver = postTokenBalances.find((balance: any) => balance.owner != senderAddress)
-    const preTokenBalanceOfReceiver = preTokenBalances.find((balance: any) => balance.owner != senderAddress)
+    const postTokenBalanceOfReceiver = postTokenBalances.find((balance: any) => balance.owner === recipientAddress)
+    const preTokenBalanceOfReceiver = preTokenBalances.find((balance: any) => balance.owner === recipientAddress)
+
+    if (!senderAddress || !postTokenBalanceOfReceiver) {
+      return {
+        from: "",
+        to: "",
+        token: "",
+        amount: 0n,
+        confirmed
+      };
+    }
 
     let preBalance = 0n
     if (preTokenBalanceOfReceiver?.uiTokenAmount.amount) {
       preBalance = BigInt(preTokenBalanceOfReceiver.uiTokenAmount.amount)
     }
 
+    // `from` is the token-account owner whose balance dropped (computed above), required to be a
+    // signer of the tx — not accountKeys[0]. A non-signing funder means we can't bind the payment to
+    // the attester, so reject (empty from → senderValid fails).
+    const senderIsSigner = accountKeys.slice(0, numSigners).includes(senderAddress);
+
     return {
-      from: txSigner,
+      from: senderIsSigner ? senderAddress : "",
       to: postTokenBalanceOfReceiver.owner,
       token: postTokenBalanceOfReceiver.mint,
       amount: BigInt(postTokenBalanceOfReceiver.uiTokenAmount.amount) - preBalance,
@@ -192,7 +244,7 @@ export class SolNetwork implements Network {
       keypair,
       new PublicKey(tokenAddress),
       new PublicKey(to),
-      true // Allow creating a token account for the receiver if it doesn't exist
+      true
     );
 
     const transaction = new Transaction().add(

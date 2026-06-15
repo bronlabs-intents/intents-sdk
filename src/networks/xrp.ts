@@ -1,18 +1,22 @@
 import Big from 'big.js';
 import { Wallet } from 'xrpl';
+import { deriveAddress } from 'ripple-keypairs';
+import { ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
+import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
 import { log } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 
 const DEFAULT_ISSUED_CURRENCY_DECIMALS = 15;
 
-export class XrpNetwork implements Network {
+export class XrpNetwork implements Network, AttestationCapable {
   private readonly rpcUrl: string;
   private readonly authHeaders: Record<string, string> = {};
   private readonly confirmations: number;
   private readonly nativeAssetDecimals: number = 6;
   readonly retryDelay: number = 10000;
+  readonly signatureScheme = SignatureScheme.Secp256k1;
 
   constructor(rpcUrl: string, confirmations: number = 1) {
     if (rpcUrl.includes('@')) {
@@ -25,6 +29,15 @@ export class XrpNetwork implements Network {
     }
 
     this.confirmations = confirmations;
+  }
+
+  // XRP classic address from a secp256k1 public key (compressed, uppercase hex — the XRPL form).
+  addressFromPublicKey(publicKey: string): string {
+    return deriveAddress(ethers.SigningKey.computePublicKey(publicKey, true).slice(2).toUpperCase());
+  }
+
+  verifyAttestation(publicKey: string, signature: string, preimage: Uint8Array): boolean {
+    return verifySecp256k1(publicKey, signature, preimage);
   }
 
   async ping(): Promise<void> {

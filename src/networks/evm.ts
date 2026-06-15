@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
+import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
 import { log, memoize } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 
@@ -18,12 +19,13 @@ interface EthTransactionReceipt {
   }[];
 }
 
-export class EvmNetwork implements Network {
+export class EvmNetwork implements Network, AttestationCapable {
   private readonly rpcUrl: string;
   private readonly provider: ethers.JsonRpcProvider;
   private readonly confirmations: number;
   private readonly nativeAssetDecimals: number = 18;
   readonly retryDelay: number = 15000;
+  readonly signatureScheme = SignatureScheme.Secp256k1;
 
   constructor(rpcUrl: string, confirmations: number = 6) {
     this.rpcUrl = rpcUrl;
@@ -33,6 +35,14 @@ export class EvmNetwork implements Network {
 
   async ping(): Promise<void> {
     await this.provider.getBlockNumber();
+  }
+
+  addressFromPublicKey(publicKey: string): string {
+    return ethers.computeAddress(publicKey);
+  }
+
+  verifyAttestation(publicKey: string, signature: string, preimage: Uint8Array): boolean {
+    return verifySecp256k1(publicKey, signature, preimage);
   }
 
   async getDecimals(tokenAddress: string): Promise<number> {
@@ -96,7 +106,6 @@ export class EvmNetwork implements Network {
       };
     }
 
-    // Native token - ETH
     if (tokenAddress === "0x0") {
       const { result } = await proxyFetch(this.rpcUrl, {
         method: 'POST',

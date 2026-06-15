@@ -1,13 +1,26 @@
 import * as ed25519 from '@noble/ed25519';
 
 import { Network, TransactionData } from './index.js';
+import { AttestationCapable, SignatureScheme, verifyEd25519 } from '../attestation.js';
 import { log, expRetry, memoize } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 import { Big } from 'big.js';
 import { ethers } from "ethers";
+import { createHash } from 'node:crypto';
 
+// Canton fingerprints are a multihash (0x12 = SHA-256, 0x20 = 32-byte length) over the 4-byte
+// purpose tag 12 (PublicKeyFingerprint) followed by the raw public key bytes.
+const FINGERPRINT_PURPOSE = Buffer.from('0000000c', 'hex');
+const PARTY_ID_PATTERN = /^[\w-]*::(1220[0-9a-fA-F]{64})$/;
 
-export class CantonNetwork implements Network {
+// AttestationCapable via the party-id namespace fingerprint. A Canton "from" is a party-id
+// (`hint::fingerprint`): the hint is free-form and not key-derivable, so sigBound compares
+// fingerprints only (matchesAddress), binding the key to the paying party's NAMESPACE. A delegated,
+// rotated, or multi-controller namespace carries that SAME fingerprint, so it still matches and is
+// NOT auto-excluded here — separating it needs a topology-state lookup we don't do, so such parties
+// must be kept off attested settlement at onboarding. The only fail-closed guards at this layer are
+// the strict PARTY_ID_PATTERN and the 32-byte key-length check.
+export class CantonNetwork implements Network, AttestationCapable {
   private readonly scanApiUrl: string;
   private readonly validatorApiUrl: string;
   private readonly ledgerApiUrl?: string;
@@ -17,6 +30,7 @@ export class CantonNetwork implements Network {
 
   private readonly nativeAssetDecimals: number = 10;
   readonly retryDelay: number = 5000;
+  readonly signatureScheme = SignatureScheme.Ed25519;
 
   private readonly clientId?: string;
   private readonly clientSecret?: string;
@@ -45,6 +59,30 @@ export class CantonNetwork implements Network {
     this.clientSecret = clientSecret;
 
     this.senderPartyId = senderPartyId;
+  }
+
+  // Returns the namespace fingerprint, not a full party-id — the hint half is not key-derivable.
+  addressFromPublicKey(publicKey: string): string {
+    const pub = ethers.getBytes(this.hex0x(publicKey));
+    if (pub.length !== 32) {
+      throw new Error(`Invalid ed25519 public key length: ${pub.length}`);
+    }
+
+    return `1220${createHash('sha256').update(FINGERPRINT_PURPOSE).update(pub).digest('hex')}`;
+  }
+
+  verifyAttestation(publicKey: string, signature: string, preimage: Uint8Array): Promise<boolean> {
+    return verifyEd25519(this.hex0x(publicKey), this.hex0x(signature), preimage);
+  }
+
+  matchesAddress(publicKey: string, address: string): boolean {
+    const partyId = address.match(PARTY_ID_PATTERN);
+    return !!partyId && partyId[1].toLowerCase() === this.addressFromPublicKey(publicKey);
+  }
+
+  // Canton APIs use bare uppercase hex for keys/signatures; the SDK convention is 0x-prefixed.
+  private hex0x(hex: string): string {
+    return hex.startsWith('0x') ? hex : `0x${hex}`;
   }
 
   async ping(): Promise<void> {

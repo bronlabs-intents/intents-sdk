@@ -38,6 +38,9 @@ importers:
       '@ton/ton':
         specifier: ^16.2.2
         version: 16.2.2(@ton/core@0.63.0(@ton/crypto@3.3.0))(@ton/crypto@3.3.0)
+      bech32:
+        specifier: ^2.0.0
+        version: 2.0.0
       big.js:
         specifier: ^7.0.1
         version: 7.0.1
@@ -65,6 +68,9 @@ importers:
       node-fetch:
         specifier: ^2.7.0
         version: 2.7.0
+      ripple-keypairs:
+        specifier: ^2.0.0
+        version: 2.0.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
       tiny-secp256k1:
         specifier: ^2.2.3
         version: 2.2.4

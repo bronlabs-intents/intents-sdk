@@ -1,16 +1,19 @@
 import { Address, beginCell, internal, SendMode, toNano, TonClient, WalletContractV5R1 } from "@ton/ton";
 import { keyPairFromSecretKey } from "@ton/crypto";
+import { ethers } from 'ethers';
 
 import { Network, TransactionData } from "./index.js";
+import { AttestationCapable, SignatureScheme, verifyEd25519 } from '../attestation.js';
 import { log, memoize } from "../utils.js";
 import { proxyFetch } from '../proxy.js';
 
-export class TonNetwork implements Network {
+export class TonNetwork implements Network, AttestationCapable {
   private readonly client: TonClient;
   private readonly rpcUrl: string;
   private readonly confirmations: number;
   private readonly nativeAssetDecimals: number = 9;
   readonly retryDelay: number = 5000;
+  readonly signatureScheme = SignatureScheme.Ed25519;
 
   constructor(rpcUrl: string, confirmations: number = 20) {
     this.rpcUrl = rpcUrl;
@@ -19,6 +22,25 @@ export class TonNetwork implements Network {
     this.client = new TonClient({
       endpoint: rpcUrl
     });
+  }
+
+  // A TON wallet is a contract; one public key maps to different addresses per wallet version.
+  // Pinned to WalletContractV5R1 (see transfer()) — settlements must come from a V5R1 wallet,
+  // else the derived address won't match orderFrom.
+  addressFromPublicKey(publicKey: string): string {
+    const wallet = WalletContractV5R1.create({
+      workchain: 0,
+      publicKey: Buffer.from(ethers.getBytes(publicKey)),
+    });
+    return wallet.address.toString({ bounceable: false });
+  }
+
+  verifyAttestation(publicKey: string, signature: string, preimage: Uint8Array): Promise<boolean> {
+    return verifyEd25519(publicKey, signature, preimage);
+  }
+
+  matchesAddress(publicKey: string, address: string): boolean {
+    return this.addressesMatch(this.addressFromPublicKey(publicKey), address);
   }
 
   async ping(): Promise<void> {
@@ -148,14 +170,12 @@ export class TonNetwork implements Network {
       });
     }
 
-    // Wait for seqno to change (transaction confirmed)
     for (let attempt = 0; attempt < 30; attempt++) {
       await this.sleep(2000);
       const currentSeqno = await contract.getSeqno();
       if (currentSeqno > seqno) break;
     }
 
-    // Get the latest transaction hash
     const transactions = await this.client.getTransactions(wallet.address, { limit: 1 });
 
     if (transactions.length === 0) {
@@ -191,7 +211,6 @@ export class TonNetwork implements Network {
   ): TransactionData | undefined {
     const outMsgs = tx.out_msgs || [];
 
-    // For outgoing messages, the sender is the account that owns this transaction
     const txAccount = this.normalizeAddress(tx.account);
 
     for (const msg of outMsgs) {
@@ -210,7 +229,6 @@ export class TonNetwork implements Network {
       }
     }
 
-    // For incoming messages, the sender is the source of the in_msg
     if (tx.in_msg?.value) {
       const from = this.normalizeAddress(tx.in_msg.source);
 

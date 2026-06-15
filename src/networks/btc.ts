@@ -1,8 +1,10 @@
 import * as bitcoin from 'bitcoinjs-lib';
 import { ECPairFactory } from 'ecpair';
 import * as ecc from 'tiny-secp256k1';
+import { ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
+import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
 import { log } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 import { randomUUID } from 'node:crypto';
@@ -33,15 +35,45 @@ interface BtcUtxo {
 
 const ECPair = ECPairFactory(ecc);
 
-export class BtcNetwork implements Network {
+export class BtcNetwork implements Network, AttestationCapable {
   private readonly rpcUrl: string;
   private readonly confirmations: number;
   private readonly nativeAssetDecimals: number = 8;
   readonly retryDelay: number = 30000;
+  readonly signatureScheme = SignatureScheme.Secp256k1;
 
   constructor(rpcUrl: string, confirmations: number = 6) {
     this.rpcUrl = rpcUrl;
     this.confirmations = confirmations;
+  }
+
+  // Canonical (display) address is P2WPKH; sigBound matching is broader — see matchesAddress.
+  addressFromPublicKey(publicKey: string): string {
+    return bitcoin.payments.p2wpkh({ pubkey: this.compressedPubkey(publicKey), network: bitcoin.networks.bitcoin }).address!;
+  }
+
+  verifyAttestation(publicKey: string, signature: string, preimage: Uint8Array): boolean {
+    return verifySecp256k1(publicKey, signature, preimage);
+  }
+
+  // One secp256k1 key controls several single-sig address formats; orderFrom may be any of them, so
+  // sigBound accepts P2WPKH / P2SH-P2WPKH / P2PKH rather than only the canonical P2WPKH. Taproot
+  // (P2TR) is excluded — it signs with Schnorr, which this ECDSA verifyAttestation can't check.
+  matchesAddress(publicKey: string, address: string): boolean {
+    const pubkey = this.compressedPubkey(publicKey);
+    const net = bitcoin.networks.bitcoin;
+
+    const candidates = [
+      bitcoin.payments.p2wpkh({ pubkey, network: net }).address,
+      bitcoin.payments.p2sh({ redeem: bitcoin.payments.p2wpkh({ pubkey, network: net }), network: net }).address,
+      bitcoin.payments.p2pkh({ pubkey, network: net }).address,
+    ];
+
+    return candidates.includes(address);
+  }
+
+  private compressedPubkey(publicKey: string): Buffer {
+    return Buffer.from(ethers.getBytes(ethers.SigningKey.computePublicKey(publicKey, true)));
   }
 
   async ping(): Promise<void> {
@@ -64,19 +96,25 @@ export class BtcNetwork implements Network {
       const tx = await this.rpcCall('getrawtransaction', [txHash, true]) as BtcTransaction;
       if (!tx) return;
 
-      // Extract sender from first input (UTXO limitation - best effort for multi-input txs)
+      // UTXO has no single canonical sender. Only attribute `from` for a single-input, non-coinbase
+      // tx; otherwise leave it empty so the oracle's senderValid fails closed. A multi-input tx can
+      // pool funds from addresses the attester doesn't control, which would break the senderValid →
+      // sigBound chain. An attested BTC settlement must therefore spend exactly one input.
       let from = "";
-      const firstInput = tx.vin[0];
-      if (firstInput && firstInput.txid && firstInput.vout !== undefined) {
-        try {
-          const prevTx = await this.rpcCall('getrawtransaction', [firstInput.txid, true]) as BtcTransaction;
-          const inputScript = prevTx.vout[firstInput.vout].scriptPubKey;
-          from = inputScript.address || inputScript.addresses?.[0] || "";
-        } catch (e) {
-          log.warn(`Failed to get sender address for ${txHash}: ${e}`);
+      if (tx.vin.length === 1) {
+        const firstInput = tx.vin[0];
+        if (firstInput && firstInput.txid && firstInput.vout !== undefined) {
+          try {
+            const prevTx = await this.rpcCall('getrawtransaction', [firstInput.txid, true]) as BtcTransaction;
+            const inputScript = prevTx.vout[firstInput.vout].scriptPubKey;
+            from = inputScript.address || inputScript.addresses?.[0] || "";
+          } catch (e) {
+            log.warn(`Failed to get sender address for ${txHash}: ${e}`);
+          }
         }
+      } else {
+        log.warn(`Transaction ${txHash} has ${tx.vin.length} inputs; refusing to attribute a single sender`);
       }
-      // coinbase transactions have no sender
 
       const outputs = tx.vout.filter(vout =>
         vout.scriptPubKey.address === recipientAddress || vout.scriptPubKey.addresses?.includes(recipientAddress)
