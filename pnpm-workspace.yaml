@@ -1,4 +1,5 @@
 overrides:
+  axios: ^1.16.1
   undici-types: ^7.16.0
 allowBuilds:
   bufferutil: false
