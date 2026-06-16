@@ -54,15 +54,15 @@ const SECP256K1_HALF_N = SECP256K1_N / 2n;
  * Canonical attestation preimage bytes. secp256k1 chains sign keccak256(preimage); ed25519 chains
  * sign these raw bytes (RFC 8032 hashes internally).
  */
-export function buildAttestationPreimage(p: AttestationMessageParams): Uint8Array {
+export function buildAttestationPreimage(params: AttestationMessageParams): Uint8Array {
   const encoded = ethers.AbiCoder.defaultAbiCoder().encode(ATTESTATION_TYPES, [
     ATTESTATION_DOMAIN,
-    ethers.getAddress(p.orderEngine),
-    p.leg,
-    p.orderId,
-    canonicalAddressString(p.counterparty),
-    canonicalAddressString(p.token),
-    p.amount,
+    ethers.getAddress(params.orderEngine),
+    params.leg,
+    params.orderId,
+    canonicalAddressString(params.counterparty),
+    canonicalAddressString(params.token),
+    params.amount,
   ]);
 
   return ethers.getBytes(encoded);
@@ -137,7 +137,12 @@ export function recoverSecp256k1PublicKeys(preimage: Uint8Array, signature: stri
   }
 
   const digest = secp256k1Digest(preimage);
-  const parities: (0 | 1)[] = sig.length === 65 ? [((sig[64] >= 27 ? sig[64] - 27 : sig[64]) & 1) as 0 | 1] : [0, 1];
+
+  let parities: (0 | 1)[] = [0, 1];
+  if (sig.length === 65) {
+    const recoveryId = sig[64] >= 27 ? sig[64] - 27 : sig[64];
+    parities = [(recoveryId & 1) as 0 | 1];
+  }
 
   const keys: string[] = [];
   for (const yParity of parities) {

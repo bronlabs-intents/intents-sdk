@@ -65,7 +65,7 @@ export class CantonNetwork implements Network, AttestationCapable {
   addressFromPublicKey(publicKey: string): string {
     const pub = ethers.getBytes(this.hex0x(publicKey));
     if (pub.length !== 32) {
-      throw new Error(`Invalid ed25519 public key length: ${pub.length}`);
+      throw new Error(`Invalid ed25519 public key length: ${pub.length} (expected 32)`);
     }
 
     return `1220${createHash('sha256').update(FINGERPRINT_PURPOSE).update(pub).digest('hex')}`;
