@@ -56,18 +56,19 @@ export class BtcNetwork implements Network, AttestationCapable {
     return verifySecp256k1(publicKey, signature, preimage);
   }
 
-  // One secp256k1 key controls several single-sig address formats; orderFrom may be any of them, so
-  // sigBound accepts P2WPKH / P2SH-P2WPKH / P2PKH rather than only the canonical P2WPKH. Taproot
+  // One secp256k1 key controls several single-sig address formats, and the same key encodes to a
+  // different string on mainnet vs test networks (bech32 HRP, base58 version byte). sigBound accepts
+  // any single-sig format on either network; the order's from-address pins which encoding actually
+  // matches, so widening the candidate set can't bind a key to an address it doesn't control. Taproot
   // (P2TR) is excluded — it signs with Schnorr, which this ECDSA verifyAttestation can't check.
   matchesAddress(publicKey: string, address: string): boolean {
     const pubkey = this.compressedPubkey(publicKey);
-    const net = bitcoin.networks.bitcoin;
 
-    const candidates = [
+    const candidates = [bitcoin.networks.bitcoin, bitcoin.networks.testnet].flatMap((net) => [
       bitcoin.payments.p2wpkh({ pubkey, network: net }).address,
       bitcoin.payments.p2sh({ redeem: bitcoin.payments.p2wpkh({ pubkey, network: net }), network: net }).address,
       bitcoin.payments.p2pkh({ pubkey, network: net }).address,
-    ];
+    ]);
 
     return candidates.includes(address);
   }

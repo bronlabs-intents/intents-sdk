@@ -200,6 +200,24 @@ test('btc: sigBound accepts P2WPKH / P2SH-P2WPKH / P2PKH of the same key, reject
   assert.equal(await attestationKeyMatchesAddress(net, pub, otherAddr), false);
 });
 
+test('btc: sigBound binds both mainnet and testnet encodings of the same key, rejects other keys', async () => {
+  const pub = new ethers.Wallet('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d').signingKey.publicKey;
+  const pubkey = Buffer.from(ethers.getBytes(ethers.SigningKey.computePublicKey(pub, true)));
+  const net = new BtcNetwork(RPC, 1);
+
+  const mainnetAddr = bitcoin.payments.p2wpkh({ pubkey, network: bitcoin.networks.bitcoin }).address;
+  const testnetAddr = bitcoin.payments.p2wpkh({ pubkey, network: bitcoin.networks.testnet }).address;
+  assert.ok(mainnetAddr.startsWith('bc1') && testnetAddr.startsWith('tb1'), 'mainnet/testnet prefixes');
+
+  assert.equal(await attestationKeyMatchesAddress(net, pub, mainnetAddr), true);
+  assert.equal(await attestationKeyMatchesAddress(net, pub, testnetAddr), true);
+
+  const otherKey = new ethers.Wallet(ethers.id('btc-other-testnet')).signingKey.publicKey;
+  const otherPubkey = Buffer.from(ethers.getBytes(ethers.SigningKey.computePublicKey(otherKey, true)));
+  const otherTestnetAddr = bitcoin.payments.p2wpkh({ pubkey: otherPubkey, network: bitcoin.networks.testnet }).address;
+  assert.equal(await attestationKeyMatchesAddress(net, pub, otherTestnetAddr), false);
+});
+
 test('ed25519 chains derive + verify (SOL/TON)', async () => {
   const priv = ed25519.utils.randomSecretKey();
   const pub = await ed25519.getPublicKeyAsync(priv);
