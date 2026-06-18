@@ -2,6 +2,10 @@ import { HttpsProxyAgent } from 'https-proxy-agent';
 import nodeFetch, { type RequestInit, type Response } from 'node-fetch';
 import { log } from './utils.js';
 
+// In-cluster traffic must never go through the corporate proxy (the proxy can't resolve cluster DNS).
+// Always bypassed, on top of any configured nonProxyHosts.
+const ALWAYS_NO_PROXY = ['*.svc.cluster.local'];
+
 let proxyAgent: HttpsProxyAgent<string> | undefined;
 let nonProxyHosts: string[] = [];
 
@@ -9,15 +13,11 @@ export function configureProxy(url?: string, noProxyHosts: string[] = []): void 
   proxyAgent = url
     ? new HttpsProxyAgent(url, { rejectUnauthorized: false })
     : undefined;
-  nonProxyHosts = noProxyHosts;
+  nonProxyHosts = [...ALWAYS_NO_PROXY, ...noProxyHosts];
 
   if (proxyAgent) {
     log.info(`Using proxy: ${proxyAgent.proxy.hostname}:${proxyAgent.proxy.port}`)
   }
-}
-
-export function getProxyAgent(): HttpsProxyAgent<string> | undefined {
-  return proxyAgent;
 }
 
 export function getProxyAgentForUrl(url: string): HttpsProxyAgent<string> | undefined {
@@ -36,10 +36,6 @@ export function proxyFetch(url: string, options?: RequestInit): Promise<Response
 }
 
 function isNonProxyHost(url: string): boolean {
-  if (nonProxyHosts.length === 0) {
-    return false;
-  }
-
   let host: string;
   try {
     host = new URL(url).hostname.toLowerCase();
