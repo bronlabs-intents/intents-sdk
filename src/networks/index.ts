@@ -13,6 +13,7 @@ export interface TransactionData {
   from: string;
   to: string;
   token: string;
+  tokenId?: bigint;
   amount: bigint;
   confirmed: boolean;
 }
@@ -21,9 +22,10 @@ export interface Network {
 
   ping(): Promise<void>;
 
-  getDecimals(tokenAddress: string): Promise<number>;
+  getDecimals(tokenAddress: string, tokenId?: bigint): Promise<number>;
 
-  getTxData(txHash: string, tokenAddress: string, recipientAddress: string): Promise<TransactionData | undefined>;
+  // implementations MUST populate TransactionData.tokenId when tokenId is passed — oracle id validation relies on it
+  getTxData(txHash: string, tokenAddress: string, recipientAddress: string, tokenId?: bigint): Promise<TransactionData | undefined>;
 
   /**
    * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.

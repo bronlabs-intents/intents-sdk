@@ -2,10 +2,15 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
+import { decodeErc6909TransferAmount } from '../token.js';
 import { log, memoize } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 
 const ERC20_TRANSFER_TOPIC = ethers.id('Transfer(address,address,uint256)');
+const ERC6909_TRANSFER_TOPIC = ethers.id('Transfer(address,address,address,uint256,uint256)');
+const ERC6909_DECIMALS_SELECTOR = '0x3f47e662';
+const ERC165_SUPPORTS_INTERFACE_SELECTOR = '0x01ffc9a7';
+const ERC6909_INTERFACE_ID = '0x0f632fb3';
 
 interface EthTransactionReceipt {
   status: string;
@@ -45,12 +50,8 @@ export class EvmNetwork implements Network, AttestationCapable {
     return verifySecp256k1(publicKey, signature, preimage);
   }
 
-  async getDecimals(tokenAddress: string): Promise<number> {
-    if (tokenAddress === "0x0") {
-      return this.nativeAssetDecimals;
-    }
-
-    return memoize(`decimals-${this.rpcUrl}-${tokenAddress}`, 86400 * 1000, async () => {
+  async supportsInterface(tokenAddress: string, interfaceId: string): Promise<boolean> {
+    return memoize(`supports-interface-${this.rpcUrl}-${tokenAddress}-${interfaceId}`, 86400 * 1000, async () => {
       const { result } = await proxyFetch(this.rpcUrl, {
         method: 'POST',
         body: JSON.stringify({
@@ -60,18 +61,60 @@ export class EvmNetwork implements Network, AttestationCapable {
           params: [
             {
               to: tokenAddress,
-              data: "0x313ce567"
+              data: ERC165_SUPPORTS_INTERFACE_SELECTOR + interfaceId.slice(2).padStart(8, '0').padEnd(64, '0')
             },
             "latest"
           ]
         })
       }).then((res) => res.json());
 
+      return !!result && result !== "0x" && BigInt(result) !== 0n;
+    });
+  }
+
+  async isErc6909(tokenAddress: string): Promise<boolean> {
+    return this.supportsInterface(tokenAddress, ERC6909_INTERFACE_ID);
+  }
+
+  async getDecimals(tokenAddress: string, tokenId?: bigint): Promise<number> {
+    if (tokenAddress === "0x0") {
+      return this.nativeAssetDecimals;
+    }
+
+    if (tokenId !== undefined && !(await this.isErc6909(tokenAddress))) {
+      throw new Error(`Token ${tokenAddress} carries tokenId ${tokenId} but does not support the ERC6909 interface`);
+    }
+
+    const callData = tokenId !== undefined
+      ? ERC6909_DECIMALS_SELECTOR + tokenId.toString(16).padStart(64, '0')
+      : "0x313ce567";
+
+    return memoize(`decimals-${this.rpcUrl}-${tokenAddress}-${tokenId ?? ''}`, 86400 * 1000, async () => {
+      const { result } = await proxyFetch(this.rpcUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          id: 1,
+          jsonrpc: "2.0",
+          method: "eth_call",
+          params: [
+            {
+              to: tokenAddress,
+              data: callData
+            },
+            "latest"
+          ]
+        })
+      }).then((res) => res.json());
+
+      if (!result || result === "0x") {
+        throw new Error(`No on-chain decimals for ${tokenAddress}${tokenId !== undefined ? ` id ${tokenId}` : ''}`);
+      }
+
       return parseInt(result, 16);
     });
   }
 
-  async getTxData(txHash: string, tokenAddress: string, recipientAddress: string): Promise<TransactionData | undefined> {
+  async getTxData(txHash: string, tokenAddress: string, recipientAddress: string, tokenId?: bigint): Promise<TransactionData | undefined> {
     const currentBlock = await this.provider.getBlockNumber();
 
     const { result: receiptResult } = await proxyFetch(this.rpcUrl, {
@@ -128,6 +171,45 @@ export class EvmNetwork implements Network, AttestationCapable {
         to,
         token: tokenAddress,
         amount: BigInt(value),
+        confirmed
+      };
+    }
+
+    // ERC6909 multi-token — match the 4-topic Transfer(caller, sender, receiver, id, amount) of the
+    // expected id; amount is the 2nd 32-byte data word (1st is caller), NOT BigInt(data).
+    if (tokenId !== undefined) {
+      if (!(await this.isErc6909(tokenAddress))) {
+        throw new Error(`Token ${tokenAddress} carries tokenId ${tokenId} but does not support the ERC6909 interface`);
+      }
+
+      const idHex = '0x' + tokenId.toString(16).padStart(64, '0');
+
+      const erc6909Log = receipt.logs.find(l =>
+        l.address?.toLowerCase() === tokenAddress.toLowerCase() &&
+        l.topics[0]?.toLowerCase() === ERC6909_TRANSFER_TOPIC.toLowerCase() &&
+        l.topics.length === 4 &&
+        ('0x' + l.topics[2].slice(26)).toLowerCase() === recipientAddress.toLowerCase() &&
+        l.topics[3]?.toLowerCase() === idHex.toLowerCase()
+      );
+
+      if (!erc6909Log) {
+        log.warn(`Transaction ${txHash} has no ERC6909 Transfer of ${tokenAddress} id ${tokenId} to ${recipientAddress}`);
+
+        return {
+          from: "",
+          to: "",
+          token: "",
+          amount: 0n,
+          confirmed
+        };
+      }
+
+      return {
+        from: '0x' + erc6909Log.topics[1].slice(26),
+        to: '0x' + erc6909Log.topics[2].slice(26),
+        token: erc6909Log.address,
+        tokenId: BigInt(erc6909Log.topics[3]),
+        amount: decodeErc6909TransferAmount(erc6909Log.data),
         confirmed
       };
     }
