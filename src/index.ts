@@ -5,8 +5,10 @@ export * from './config.js';
 export * from './eventQueue.js';
 export * from './contracts.js';
 export * from './utils.js';
-export { configureProxy, getProxyAgent, proxyFetch } from './proxy.js';
+export { configureProxy, getProxyAgentForUrl, proxyFetch } from './proxy.js';
 export { initNetworks } from './networks/index.js';
+export type { Network, TransactionData } from './networks/index.js';
+export * from './attestation.js';
 export * from './token.js';
 
 // Monkey-patch BigInt.prototype.toJSON

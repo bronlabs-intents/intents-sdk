@@ -5,7 +5,7 @@ import { sleep, log } from './utils.js';
 import { EventQueue } from './eventQueue.js';
 import { initOracleAggregator, OracleAggregatorContract } from './contracts.js';
 import { IntentsConfig } from './config.js';
-import { configureProxy, getProxyAgent } from './proxy.js';
+import { configureProxy, getProxyAgentForUrl } from './proxy.js';
 
 export interface OracleAggregatorIndexerConfig extends IntentsConfig {
   oracleAggregatorAddress: string;
@@ -42,7 +42,7 @@ export class OracleAggregatorIndexer {
   constructor(config: OracleAggregatorIndexerConfig) {
     this.config = config;
 
-    configureProxy(config.proxyUrl);
+    configureProxy(config.proxyUrl, config.nonProxyHosts);
 
     const req = new FetchRequest(config.rpcUrl);
 
@@ -50,7 +50,7 @@ export class OracleAggregatorIndexer {
       req.setHeader('x-api-key', config.rpcAuthToken);
     }
 
-    const agent = getProxyAgent();
+    const agent = getProxyAgentForUrl(config.rpcUrl);
 
     if (agent) {
       req.getUrlFunc = FetchRequest.createGetUrlFunc({ agent });
@@ -163,7 +163,7 @@ export class OracleAggregatorIndexer {
     await this.processHistoricalEvents();
 
     try {
-      const wsAgent = getProxyAgent();
+      const wsAgent = getProxyAgentForUrl(this.config.rpcUrl);
       const wsOptions = wsAgent ? { agent: wsAgent } : undefined;
       const wsUrl = this.config.rpcUrl
         .replace(/^https:\/\//, 'wss://')

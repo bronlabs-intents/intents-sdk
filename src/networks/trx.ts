@@ -1,7 +1,9 @@
 import { fromHex, toHex } from "tron-format-address";
 import { TronWeb } from "tronweb";
+import { ethers } from 'ethers';
 
 import { Network, TransactionData } from "./index.js";
+import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
 import { log, memoize } from "../utils.js";
 import { proxyFetch } from '../proxy.js';
 
@@ -9,12 +11,13 @@ const TRC20_TRANSFER_TOPIC = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628
 
 const addrBody = (s: string): string => (s || "").replace(/^0x/, "").toLowerCase().slice(-40);
 
-export class TrxNetwork implements Network {
+export class TrxNetwork implements Network, AttestationCapable {
   private readonly rpcUrl: string;
   private readonly authHeaders: Record<string, string> = {};
   private readonly confirmations: number;
   private readonly nativeAssetDecimals: number = 6;
   readonly retryDelay: number = 10000;
+  readonly signatureScheme = SignatureScheme.Secp256k1;
   private tronWeb: TronWeb;
 
   constructor(rpcUrl: string, confirmations: number = 20) {
@@ -33,6 +36,14 @@ export class TrxNetwork implements Network {
       fullHost: rpcUrl,
       headers: this.authHeaders
     });
+  }
+
+  addressFromPublicKey(publicKey: string): string {
+    return fromHex('41' + ethers.computeAddress(publicKey).slice(2));
+  }
+
+  verifyAttestation(publicKey: string, signature: string, preimage: Uint8Array): boolean {
+    return verifySecp256k1(publicKey, signature, preimage);
   }
 
   async ping(): Promise<void> {
@@ -76,7 +87,6 @@ export class TrxNetwork implements Network {
       body: JSON.stringify({ num: 1 })
     }).then((res) => res.block[0].block_header.raw_data.number);
 
-    // Native token - TRX
     if (tokenAddress === "0x0") {
       const response = await this.request(`/wallet/gettransactionbyid`, {
         method: "POST",
@@ -140,7 +150,6 @@ export class TrxNetwork implements Network {
       };
     }
 
-    // TRC20 token
     const response = await this.request(
       `/wallet/gettransactioninfobyid`,
       {
@@ -209,18 +218,15 @@ export class TrxNetwork implements Network {
    * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.
    */
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {
-    // Set private key
     this.tronWeb.setPrivateKey(privateKey);
 
     if (tokenAddress === "0x0") {
-      // Send TRX (native token)
       const tx = await this.tronWeb.trx.sendTransaction(to, Number(value));
       return tx.txid;
     }
 
     const { abi } = await this.tronWeb.trx.getContract(tokenAddress)
 
-    // Send USDT or other TRC20 tokens
     const contract = this.tronWeb.contract(abi.entrys, tokenAddress);
     return await contract.methods.transfer(to, Number(value)).send();
   }

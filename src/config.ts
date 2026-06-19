@@ -25,6 +25,7 @@ export interface IntentsConfig {
   maxRetries: number;
   retryDelay: number;
   proxyUrl?: string;
+  nonProxyHosts?: string[];
 
   networks?: {
     [key: string]: NetworkConfig;
