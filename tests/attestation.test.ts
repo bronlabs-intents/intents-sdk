@@ -1,29 +1,29 @@
-import { test } from 'node:test';
-import assert from 'node:assert/strict';
+import { expect, test } from 'vitest';
 import { ethers } from 'ethers';
 import * as ed25519 from '@noble/ed25519';
 import * as bitcoin from 'bitcoinjs-lib';
 
 import {
+  AttestationMessageParams,
   attestationKeyMatchesAddress,
   buildAttestationPreimage,
   isAttestationCapable,
   secp256k1Digest,
   verifySecp256k1,
   verifyEd25519,
-} from '../dist/attestation.js';
-import { CantonNetwork } from '../dist/networks/canton.js';
-import { EvmNetwork } from '../dist/networks/evm.js';
-import { TrxNetwork } from '../dist/networks/trx.js';
-import { XrpNetwork } from '../dist/networks/xrp.js';
-import { CosmosNetwork } from '../dist/networks/cosmos.js';
-import { BtcNetwork } from '../dist/networks/btc.js';
-import { SolNetwork } from '../dist/networks/sol.js';
-import { TonNetwork } from '../dist/networks/ton.js';
+} from '../src/attestation.js';
+import { CantonNetwork } from '../src/networks/canton.js';
+import { EvmNetwork } from '../src/networks/evm.js';
+import { TrxNetwork } from '../src/networks/trx.js';
+import { XrpNetwork } from '../src/networks/xrp.js';
+import { CosmosNetwork } from '../src/networks/cosmos.js';
+import { BtcNetwork } from '../src/networks/btc.js';
+import { SolNetwork } from '../src/networks/sol.js';
+import { TonNetwork } from '../src/networks/ton.js';
 
 const RPC = 'http://127.0.0.1:8545';
 
-const params = {
+const params: AttestationMessageParams = {
   orderEngine: '0x1111111111111111111111111111111111111111',
   leg: 'user',
   orderId: 'order-abc',
@@ -39,8 +39,8 @@ const SECP_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd036414
 // encoding changed and ATTESTATION_DOMAIN must be bumped.
 test('canonical vector digest is pinned', () => {
   const preimage = buildAttestationPreimage(params);
-  assert.equal(preimage.length, 576);
-  assert.equal(secp256k1Digest(preimage), '0x3d5c37807f0daa4d09b1408e42c85a4a012d4b1862782cc6caeb6a3ad9b89995');
+  expect(preimage.length).toBe(576);
+  expect(secp256k1Digest(preimage)).toBe('0x3d5c37807f0daa4d09b1408e42c85a4a012d4b1862782cc6caeb6a3ad9b89995');
 });
 
 // counterparty/token are ABI 'string', so their text is hashed verbatim. EVM-style 0x-addresses are
@@ -50,7 +50,7 @@ test('EVM-style counterparty is canonicalized — checksum casing does NOT chang
   const lower = '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd';
   const a = buildAttestationPreimage({ ...params, counterparty: lower });
   const b = buildAttestationPreimage({ ...params, counterparty: ethers.getAddress(lower) });
-  assert.deepEqual(a, b);
+  expect(a).toEqual(b);
 });
 
 // Non-EVM forms (base58/bech32/r-address) are case-sensitive and must pass through untouched — they
@@ -59,7 +59,7 @@ test('non-EVM counterparty passes through verbatim (case-sensitive)', () => {
   const base58 = 'TJRabPrwbZy45sbavfcjinPJC18kjpRTv8';
   const a = buildAttestationPreimage({ ...params, counterparty: base58 });
   const b = buildAttestationPreimage({ ...params, counterparty: base58.toLowerCase() });
-  assert.notDeepEqual(a, b);
+  expect(a).not.toEqual(b);
 });
 
 // Canton sigBound matches only the namespace-fingerprint half of the party-id — the hint half is
@@ -67,17 +67,17 @@ test('non-EVM counterparty passes through verbatim (case-sensitive)', () => {
 // cross-implementation contract with the signer-side party derivation.
 test('canton: fingerprint-based sigBound', async () => {
   const net = new CantonNetwork('http://127.0.0.1:1');
-  assert.equal(isAttestationCapable(net), true);
+  expect(isAttestationCapable(net)).toBe(true);
 
   const pub = '0x' + '11'.repeat(32);
   const fp = '12200205734e0ef4afadcf3873cafbb4b8954912a4eb6c11123340ab170e4302e477';
-  assert.equal(net.addressFromPublicKey(pub), fp);
-  assert.equal(net.addressFromPublicKey('11'.repeat(32).toUpperCase()), fp); // bare uppercase hex (Canton convention)
+  expect(net.addressFromPublicKey(pub)).toBe(fp);
+  expect(net.addressFromPublicKey('11'.repeat(32).toUpperCase())).toBe(fp); // bare uppercase hex (Canton convention)
 
-  assert.equal(await attestationKeyMatchesAddress(net, pub, `bron::${fp}`), true);
-  assert.equal(await attestationKeyMatchesAddress(net, pub, `other-hint::${fp.toUpperCase()}`), true); // hint-agnostic, case-insensitive
-  assert.equal(await attestationKeyMatchesAddress(net, pub, fp), false); // bare fingerprint is not a party-id
-  assert.equal(await attestationKeyMatchesAddress(net, pub, `bron::1220${'0'.repeat(64)}`), false);
+  expect(await attestationKeyMatchesAddress(net, pub, `bron::${fp}`)).toBe(true);
+  expect(await attestationKeyMatchesAddress(net, pub, `other-hint::${fp.toUpperCase()}`)).toBe(true); // hint-agnostic, case-insensitive
+  expect(await attestationKeyMatchesAddress(net, pub, fp)).toBe(false); // bare fingerprint is not a party-id
+  expect(await attestationKeyMatchesAddress(net, pub, `bron::1220${'0'.repeat(64)}`)).toBe(false);
 });
 
 test('canton: ed25519 attestation round-trip', async () => {
@@ -87,20 +87,20 @@ test('canton: ed25519 attestation round-trip', async () => {
   const preimage = buildAttestationPreimage(params);
   const sig = ethers.hexlify(await ed25519.signAsync(preimage, priv));
 
-  assert.equal(await net.verifyAttestation(pub, sig, preimage), true);
-  assert.equal(await net.verifyAttestation(pub, sig, buildAttestationPreimage({ ...params, leg: 'solver' })), false);
+  expect(await net.verifyAttestation(pub, sig, preimage)).toBe(true);
+  expect(await net.verifyAttestation(pub, sig, buildAttestationPreimage({ ...params, leg: 'solver' }))).toBe(false);
 });
 
 test('preimage is deterministic and field-sensitive', () => {
   const a = buildAttestationPreimage(params);
   const b = buildAttestationPreimage(params);
-  assert.deepEqual(a, b);
+  expect(a).toEqual(b);
 
   const diffLeg = buildAttestationPreimage({ ...params, leg: 'solver' });
-  assert.notDeepEqual(a, diffLeg);
+  expect(a).not.toEqual(diffLeg);
 
   const diffAmount = buildAttestationPreimage({ ...params, amount: 1000001n });
-  assert.notDeepEqual(a, diffAmount);
+  expect(a).not.toEqual(diffAmount);
 });
 
 test('secp256k1 round-trip + tamper + malleability', () => {
@@ -110,16 +110,16 @@ test('secp256k1 round-trip + tamper + malleability', () => {
   const sig = wallet.signingKey.sign(digest);
   const pub = wallet.signingKey.publicKey;
 
-  assert.equal(verifySecp256k1(pub, sig.serialized, preimage), true);
+  expect(verifySecp256k1(pub, sig.serialized, preimage)).toBe(true);
 
   // wrong message
   const otherPreimage = buildAttestationPreimage({ ...params, orderId: 'order-xyz' });
-  assert.equal(verifySecp256k1(pub, sig.serialized, otherPreimage), false);
+  expect(verifySecp256k1(pub, sig.serialized, otherPreimage)).toBe(false);
 
   // malleated high-S variant must be rejected
   const highS = '0x' + (SECP_N - BigInt(sig.s)).toString(16).padStart(64, '0');
   const malleable = ethers.concat([sig.r, highS, '0x1c']);
-  assert.equal(verifySecp256k1(pub, malleable, preimage), false);
+  expect(verifySecp256k1(pub, malleable, preimage)).toBe(false);
 });
 
 test('ed25519 round-trip + tamper + length checks', async () => {
@@ -131,25 +131,25 @@ test('ed25519 round-trip + tamper + length checks', async () => {
   const pubHex = ethers.hexlify(pub);
   const sigHex = ethers.hexlify(sig);
 
-  assert.equal(await verifyEd25519(pubHex, sigHex, preimage), true);
+  expect(await verifyEd25519(pubHex, sigHex, preimage)).toBe(true);
 
   const otherPreimage = buildAttestationPreimage({ ...params, leg: 'solver' });
-  assert.equal(await verifyEd25519(pubHex, sigHex, otherPreimage), false);
+  expect(await verifyEd25519(pubHex, sigHex, otherPreimage)).toBe(false);
 
   // wrong lengths rejected
-  assert.equal(await verifyEd25519('0x1234', sigHex, preimage), false);
-  assert.equal(await verifyEd25519(pubHex, '0x1234', preimage), false);
+  expect(await verifyEd25519('0x1234', sigHex, preimage)).toBe(false);
+  expect(await verifyEd25519(pubHex, '0x1234', preimage)).toBe(false);
 });
 
 test('EVM network: addressFromPublicKey + verifyAttestation', async () => {
   const wallet = new ethers.Wallet('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
   const net = new EvmNetwork(RPC, 1);
-  assert.equal(net.addressFromPublicKey(wallet.signingKey.publicKey), wallet.address);
-  assert.equal(await attestationKeyMatchesAddress(net, wallet.signingKey.publicKey, wallet.address.toLowerCase()), true);
+  expect(net.addressFromPublicKey(wallet.signingKey.publicKey)).toBe(wallet.address);
+  expect(await attestationKeyMatchesAddress(net, wallet.signingKey.publicKey, wallet.address.toLowerCase())).toBe(true);
 
   const preimage = buildAttestationPreimage(params);
   const sig = wallet.signingKey.sign(secp256k1Digest(preimage));
-  assert.equal(net.verifyAttestation(wallet.signingKey.publicKey, sig.serialized, preimage), true);
+  expect(net.verifyAttestation(wallet.signingKey.publicKey, sig.serialized, preimage)).toBe(true);
 });
 
 test('secp256k1 chains derive deterministic non-empty addresses + verify', () => {
@@ -167,14 +167,14 @@ test('secp256k1 chains derive deterministic non-empty addresses + verify', () =>
 
   for (const [name, net] of Object.entries(nets)) {
     const addr = net.addressFromPublicKey(pub);
-    assert.ok(typeof addr === 'string' && addr.length > 0, `${name} addr`);
-    assert.equal(net.addressFromPublicKey(pub), addr, `${name} deterministic`);
-    assert.equal(net.verifyAttestation(pub, sig, preimage), true, `${name} verify`);
-    assert.equal(net.verifyAttestation(pub, sig, buildAttestationPreimage({ ...params, amount: 7n })), false, `${name} tamper`);
+    expect(typeof addr === 'string' && addr.length > 0, `${name} addr`).toBe(true);
+    expect(net.addressFromPublicKey(pub), `${name} deterministic`).toBe(addr);
+    expect(net.verifyAttestation(pub, sig, preimage), `${name} verify`).toBe(true);
+    expect(net.verifyAttestation(pub, sig, buildAttestationPreimage({ ...params, amount: 7n })), `${name} tamper`).toBe(false);
   }
 
-  assert.ok(nets.cosmos.addressFromPublicKey(pub).startsWith('gonka1'), 'cosmos bech32 prefix');
-  assert.ok(nets.btc.addressFromPublicKey(pub).startsWith('bc1'), 'btc p2wpkh prefix');
+  expect(nets.cosmos.addressFromPublicKey(pub).startsWith('gonka1'), 'cosmos bech32 prefix').toBe(true);
+  expect(nets.btc.addressFromPublicKey(pub).startsWith('bc1'), 'btc p2wpkh prefix').toBe(true);
 });
 
 test('btc: sigBound accepts P2WPKH / P2SH-P2WPKH / P2PKH of the same key, rejects others', async () => {
@@ -191,13 +191,13 @@ test('btc: sigBound accepts P2WPKH / P2SH-P2WPKH / P2PKH of the same key, reject
   ];
 
   for (const addr of formats) {
-    assert.equal(await attestationKeyMatchesAddress(net, pub, addr), true, addr);
+    expect(await attestationKeyMatchesAddress(net, pub, addr!), addr).toBe(true);
   }
 
   const otherKey = new ethers.Wallet(ethers.id('btc-other')).signingKey.publicKey;
   const otherPubkey = Buffer.from(ethers.getBytes(ethers.SigningKey.computePublicKey(otherKey, true)));
   const otherAddr = bitcoin.payments.p2wpkh({ pubkey: otherPubkey, network: bnet }).address;
-  assert.equal(await attestationKeyMatchesAddress(net, pub, otherAddr), false);
+  expect(await attestationKeyMatchesAddress(net, pub, otherAddr!)).toBe(false);
 });
 
 test('btc: sigBound binds both mainnet and testnet encodings of the same key, rejects other keys', async () => {
@@ -205,17 +205,17 @@ test('btc: sigBound binds both mainnet and testnet encodings of the same key, re
   const pubkey = Buffer.from(ethers.getBytes(ethers.SigningKey.computePublicKey(pub, true)));
   const net = new BtcNetwork(RPC, 1);
 
-  const mainnetAddr = bitcoin.payments.p2wpkh({ pubkey, network: bitcoin.networks.bitcoin }).address;
-  const testnetAddr = bitcoin.payments.p2wpkh({ pubkey, network: bitcoin.networks.testnet }).address;
-  assert.ok(mainnetAddr.startsWith('bc1') && testnetAddr.startsWith('tb1'), 'mainnet/testnet prefixes');
+  const mainnetAddr = bitcoin.payments.p2wpkh({ pubkey, network: bitcoin.networks.bitcoin }).address!;
+  const testnetAddr = bitcoin.payments.p2wpkh({ pubkey, network: bitcoin.networks.testnet }).address!;
+  expect(mainnetAddr.startsWith('bc1') && testnetAddr.startsWith('tb1'), 'mainnet/testnet prefixes').toBe(true);
 
-  assert.equal(await attestationKeyMatchesAddress(net, pub, mainnetAddr), true);
-  assert.equal(await attestationKeyMatchesAddress(net, pub, testnetAddr), true);
+  expect(await attestationKeyMatchesAddress(net, pub, mainnetAddr)).toBe(true);
+  expect(await attestationKeyMatchesAddress(net, pub, testnetAddr)).toBe(true);
 
   const otherKey = new ethers.Wallet(ethers.id('btc-other-testnet')).signingKey.publicKey;
   const otherPubkey = Buffer.from(ethers.getBytes(ethers.SigningKey.computePublicKey(otherKey, true)));
-  const otherTestnetAddr = bitcoin.payments.p2wpkh({ pubkey: otherPubkey, network: bitcoin.networks.testnet }).address;
-  assert.equal(await attestationKeyMatchesAddress(net, pub, otherTestnetAddr), false);
+  const otherTestnetAddr = bitcoin.payments.p2wpkh({ pubkey: otherPubkey, network: bitcoin.networks.testnet }).address!;
+  expect(await attestationKeyMatchesAddress(net, pub, otherTestnetAddr)).toBe(false);
 });
 
 test('ed25519 chains derive + verify (SOL/TON)', async () => {
@@ -227,8 +227,8 @@ test('ed25519 chains derive + verify (SOL/TON)', async () => {
 
   for (const net of [new SolNetwork(RPC, 1), new TonNetwork(RPC, 1)]) {
     const addr = net.addressFromPublicKey(pubHex);
-    assert.ok(typeof addr === 'string' && addr.length > 0);
-    assert.equal(await net.verifyAttestation(pubHex, sig, preimage), true);
-    assert.equal(await net.verifyAttestation(pubHex, sig, buildAttestationPreimage({ ...params, leg: 'solver' })), false);
+    expect(typeof addr === 'string' && addr.length > 0).toBe(true);
+    expect(await net.verifyAttestation(pubHex, sig, preimage)).toBe(true);
+    expect(await net.verifyAttestation(pubHex, sig, buildAttestationPreimage({ ...params, leg: 'solver' }))).toBe(false);
   }
 });

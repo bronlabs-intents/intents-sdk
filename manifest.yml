@@ -13,6 +13,7 @@ promote:
   - node:
       node: >
         pnpm install &&
+        pnpm run test &&
         pnpm run build &&
         pnpm version {{ info.build-version }} --no-git-tag-version &&
         HTTPS_PROXY="$BRON_HTTP_PROXY" HTTP_PROXY="$BRON_HTTP_PROXY"
