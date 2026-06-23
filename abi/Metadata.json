@@ -358,40 +358,6 @@
             "internalType": "uint128",
             "name": "totalFeesPercent_e4",
             "type": "uint128"
-          },
-          {
-            "components": [
-              {
-                "internalType": "bytes",
-                "name": "publicKey",
-                "type": "bytes"
-              },
-              {
-                "internalType": "bytes",
-                "name": "signature",
-                "type": "bytes"
-              }
-            ],
-            "internalType": "struct IOrderEngine.Attestation",
-            "name": "userTxAttestation",
-            "type": "tuple"
-          },
-          {
-            "components": [
-              {
-                "internalType": "bytes",
-                "name": "publicKey",
-                "type": "bytes"
-              },
-              {
-                "internalType": "bytes",
-                "name": "signature",
-                "type": "bytes"
-              }
-            ],
-            "internalType": "struct IOrderEngine.Attestation",
-            "name": "solverTxAttestation",
-            "type": "tuple"
           }
         ],
         "internalType": "struct IMetadata.OrderFullResponse",
