@@ -32,10 +32,15 @@ export interface AttestationMessageParams {
   orderId: string;
   counterparty: string;   // user-leg: solverAddress; solver-leg: userAddress (on the settlement chain)
   token: string;          // settlement token address on the settlement chain
-  amount: bigint;         // settlement amount (base units)
+  // Raw on-chain pricing (createOrder XOR-pins exactly one of base/quote; price_e18 set on solverReact).
+  // Bound verbatim so signer and verifier read the same immutable order — the leg's settlement amount is
+  // derived from these by the verifier, never recomputed on the signing side.
+  baseAmount: bigint;
+  quoteAmount: bigint;
+  price: bigint;          // price_e18
 }
 
-const ATTESTATION_TYPES = ['string', 'address', 'string', 'string', 'string', 'string', 'uint256'];
+const ATTESTATION_TYPES = ['string', 'address', 'string', 'string', 'string', 'string', 'uint256', 'uint256', 'uint256'];
 
 const EVM_ADDRESS_STRING = /^0x[0-9a-fA-F]{40}$/;
 
@@ -62,7 +67,9 @@ export function buildAttestationPreimage(params: AttestationMessageParams): Uint
     params.orderId,
     canonicalAddressString(params.counterparty),
     canonicalAddressString(params.token),
-    params.amount,
+    params.baseAmount,
+    params.quoteAmount,
+    params.price,
   ]);
 
   return ethers.getBytes(encoded);
@@ -190,5 +197,89 @@ export async function verifyEd25519(publicKey: string, signature: string, preima
     return await ed25519.verifyAsync(sig, preimage, pub, { zip215: false });
   } catch {
     return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Settlement-proof method registry
+//
+// `method` is the opaque uint8 stored on-chain in SettlementProof; the contract never interprets it.
+// The registry — which methods exist, how each proof is encoded, how the oracle verifies it, and which
+// methods are allowed per network — lives HERE so the submitter (defi-js / pilates) and the verifier
+// (oracle) share one source of truth. Adding a method is an SDK change, not a contract change.
+//
+// Today exactly one method is wired (payer-signature) and every network allows it.
+// ---------------------------------------------------------------------------
+
+export enum SettlementMethod {
+  None = 0,
+  PayerSignature = 1,
+}
+
+const ALLOWED_SETTLEMENT_METHODS: SettlementMethod[] = [SettlementMethod.PayerSignature];
+
+export function allowedSettlementMethods(_networkId: string): SettlementMethod[] {
+  return ALLOWED_SETTLEMENT_METHODS;
+}
+
+const PAYER_SIGNATURE_PROOF_TYPES = ['bytes', 'bytes'];
+
+/** SettlementMethod.PayerSignature proof payload: abi.encode(publicKey, signature). */
+export function encodePayerSignatureProof(publicKey: string, signature: string): string {
+  return ethers.AbiCoder.defaultAbiCoder().encode(PAYER_SIGNATURE_PROOF_TYPES, [publicKey, signature]);
+}
+
+export function decodePayerSignatureProof(proof: string): { publicKey: string; signature: string } {
+  const [publicKey, signature] = ethers.AbiCoder.defaultAbiCoder().decode(PAYER_SIGNATURE_PROOF_TYPES, proof);
+  return { publicKey, signature };
+}
+
+export interface SettlementProofInput {
+  method: number;
+  proof: string;
+}
+
+export interface SettlementProofVerification {
+  present: boolean;       // a method other than None is declared on-chain
+  methodAllowed: boolean; // the declared method is in this network's allow-list
+  valid: boolean;         // method present, allowed, and its proof verified
+  sigBound?: boolean;
+  sigValid?: boolean;
+}
+
+/**
+ * Verify the on-chain SettlementProof for one settlement leg. Dispatches on `method` against the
+ * network's allow-list — an unknown or disallowed method fails closed. PayerSignature: decode the
+ * proof to (publicKey, signature), check the key controls `orderFrom` (sigBound) and the signature
+ * covers the canonical preimage (sigValid).
+ */
+export async function verifySettlementProof(
+  network: AttestationCapable,
+  networkId: string,
+  input: SettlementProofInput,
+  preimageParams: AttestationMessageParams,
+  orderFrom: string,
+): Promise<SettlementProofVerification> {
+  if (input.method === SettlementMethod.None) {
+    return { present: false, methodAllowed: true, valid: false };
+  }
+
+  if (!allowedSettlementMethods(networkId).includes(input.method)) {
+    return { present: true, methodAllowed: false, valid: false };
+  }
+
+  switch (input.method) {
+    case SettlementMethod.PayerSignature: {
+      const { publicKey, signature } = decodePayerSignatureProof(input.proof);
+      const preimage = buildAttestationPreimage(preimageParams);
+
+      const sigBound = await attestationKeyMatchesAddress(network, publicKey, orderFrom);
+      const sigValid = await network.verifyAttestation(publicKey, signature, preimage);
+
+      return { present: true, methodAllowed: true, valid: sigBound && sigValid, sigBound, sigValid };
+    }
+
+    default:
+      return { present: true, methodAllowed: false, valid: false };
   }
 }

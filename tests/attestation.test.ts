@@ -7,10 +7,14 @@ import {
   AttestationMessageParams,
   attestationKeyMatchesAddress,
   buildAttestationPreimage,
+  decodePayerSignatureProof,
+  encodePayerSignatureProof,
   isAttestationCapable,
   secp256k1Digest,
+  SettlementMethod,
   verifySecp256k1,
   verifyEd25519,
+  verifySettlementProof,
 } from '../src/attestation.js';
 import { CantonNetwork } from '../src/networks/canton.js';
 import { EvmNetwork } from '../src/networks/evm.js';
@@ -29,7 +33,9 @@ const params: AttestationMessageParams = {
   orderId: 'order-abc',
   counterparty: '0x2222222222222222222222222222222222222222',
   token: '0x0',
-  amount: 1000000n,
+  baseAmount: 1000000n,
+  quoteAmount: 0n,
+  price: 2000000000000000000n,
 };
 
 const SECP_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
@@ -39,8 +45,8 @@ const SECP_N = 0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd036414
 // encoding changed and ATTESTATION_DOMAIN must be bumped.
 test('canonical vector digest is pinned', () => {
   const preimage = buildAttestationPreimage(params);
-  expect(preimage.length).toBe(576);
-  expect(secp256k1Digest(preimage)).toBe('0x3d5c37807f0daa4d09b1408e42c85a4a012d4b1862782cc6caeb6a3ad9b89995');
+  expect(preimage.length).toBe(640);
+  expect(secp256k1Digest(preimage)).toBe('0xe57018510e3afffc5c91b1b375fc2f414c5a287d7430a172b79fcb11c3471a4b');
 });
 
 // counterparty/token are ABI 'string', so their text is hashed verbatim. EVM-style 0x-addresses are
@@ -99,8 +105,11 @@ test('preimage is deterministic and field-sensitive', () => {
   const diffLeg = buildAttestationPreimage({ ...params, leg: 'solver' });
   expect(a).not.toEqual(diffLeg);
 
-  const diffAmount = buildAttestationPreimage({ ...params, amount: 1000001n });
+  const diffAmount = buildAttestationPreimage({ ...params, baseAmount: 1000001n });
   expect(a).not.toEqual(diffAmount);
+
+  const diffPrice = buildAttestationPreimage({ ...params, price: 2000000000000000001n });
+  expect(a).not.toEqual(diffPrice);
 });
 
 test('secp256k1 round-trip + tamper + malleability', () => {
@@ -170,7 +179,7 @@ test('secp256k1 chains derive deterministic non-empty addresses + verify', () =>
     expect(typeof addr === 'string' && addr.length > 0, `${name} addr`).toBe(true);
     expect(net.addressFromPublicKey(pub), `${name} deterministic`).toBe(addr);
     expect(net.verifyAttestation(pub, sig, preimage), `${name} verify`).toBe(true);
-    expect(net.verifyAttestation(pub, sig, buildAttestationPreimage({ ...params, amount: 7n })), `${name} tamper`).toBe(false);
+    expect(net.verifyAttestation(pub, sig, buildAttestationPreimage({ ...params, baseAmount: 7n })), `${name} tamper`).toBe(false);
   }
 
   expect(nets.cosmos.addressFromPublicKey(pub).startsWith('gonka1'), 'cosmos bech32 prefix').toBe(true);
@@ -216,6 +225,51 @@ test('btc: sigBound binds both mainnet and testnet encodings of the same key, re
   const otherPubkey = Buffer.from(ethers.getBytes(ethers.SigningKey.computePublicKey(otherKey, true)));
   const otherTestnetAddr = bitcoin.payments.p2wpkh({ pubkey: otherPubkey, network: bitcoin.networks.testnet }).address!;
   expect(await attestationKeyMatchesAddress(net, pub, otherTestnetAddr)).toBe(false);
+});
+
+test('payer-signature proof: abi.encode round-trip preserves publicKey + signature', () => {
+  const wallet = new ethers.Wallet('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
+  const sig = wallet.signingKey.sign(secp256k1Digest(buildAttestationPreimage(params))).serialized;
+  const pub = wallet.signingKey.publicKey;
+
+  const decoded = decodePayerSignatureProof(encodePayerSignatureProof(pub, sig));
+  expect(decoded.publicKey.toLowerCase()).toBe(pub.toLowerCase());
+  expect(decoded.signature.toLowerCase()).toBe(sig.toLowerCase());
+});
+
+test('verifySettlementProof: method None is not present (legacy pass-through)', async () => {
+  const net = new EvmNetwork(RPC, 1);
+  const v = await verifySettlementProof(net, 'ETH', { method: SettlementMethod.None, proof: '0x' }, params, params.counterparty);
+  expect(v.present).toBe(false);
+  expect(v.valid).toBe(false);
+});
+
+test('verifySettlementProof: PayerSignature verifies a real proof, rejects tamper and unknown method', async () => {
+  const wallet = new ethers.Wallet('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
+  const net = new EvmNetwork(RPC, 1);
+  const sig = wallet.signingKey.sign(secp256k1Digest(buildAttestationPreimage(params))).serialized;
+  const proof = encodePayerSignatureProof(wallet.signingKey.publicKey, sig);
+
+  const ok = await verifySettlementProof(net, 'ETH', { method: SettlementMethod.PayerSignature, proof }, params, wallet.address);
+  expect(ok).toMatchObject({ present: true, methodAllowed: true, sigBound: true, sigValid: true, valid: true });
+
+  // wrong order's settlement-from address — sigBound fails
+  const wrongFrom = await verifySettlementProof(net, 'ETH', { method: SettlementMethod.PayerSignature, proof }, params, params.counterparty);
+  expect(wrongFrom.valid).toBe(false);
+  expect(wrongFrom.sigBound).toBe(false);
+
+  // proof bound to a different leg — sigValid fails
+  const otherLeg = encodePayerSignatureProof(
+    wallet.signingKey.publicKey,
+    wallet.signingKey.sign(secp256k1Digest(buildAttestationPreimage({ ...params, leg: 'solver' }))).serialized,
+  );
+  const tampered = await verifySettlementProof(net, 'ETH', { method: SettlementMethod.PayerSignature, proof: otherLeg }, params, wallet.address);
+  expect(tampered.valid).toBe(false);
+  expect(tampered.sigValid).toBe(false);
+
+  // unknown method id — fails closed, never reaches verification
+  const unknown = await verifySettlementProof(net, 'ETH', { method: 99, proof }, params, wallet.address);
+  expect(unknown).toMatchObject({ present: true, methodAllowed: false, valid: false });
 });
 
 test('ed25519 chains derive + verify (SOL/TON)', async () => {

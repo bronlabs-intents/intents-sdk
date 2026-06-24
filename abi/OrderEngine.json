@@ -797,42 +797,6 @@
     "inputs": [
       {
         "internalType": "string",
-        "name": "_orderId",
-        "type": "string"
-      },
-      {
-        "internalType": "string",
-        "name": "_solverTxHash",
-        "type": "string"
-      }
-    ],
-    "name": "setSolverTxOnQuoteNetwork",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string",
-        "name": "_orderId",
-        "type": "string"
-      },
-      {
-        "internalType": "string",
-        "name": "_userTxHash",
-        "type": "string"
-      }
-    ],
-    "name": "setUserTxOnBaseNetwork",
-    "outputs": [],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "string",
         "name": "",
         "type": "string"
       }
@@ -910,6 +874,124 @@
   {
     "inputs": [],
     "name": "unpause",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      }
+    ],
+    "name": "getSolverTxProof",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint8",
+            "name": "method",
+            "type": "uint8"
+          },
+          {
+            "internalType": "bytes",
+            "name": "proof",
+            "type": "bytes"
+          }
+        ],
+        "internalType": "struct IOrderEngine.SettlementProof",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      }
+    ],
+    "name": "getUserTxProof",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint8",
+            "name": "method",
+            "type": "uint8"
+          },
+          {
+            "internalType": "bytes",
+            "name": "proof",
+            "type": "bytes"
+          }
+        ],
+        "internalType": "struct IOrderEngine.SettlementProof",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "_solverTxHash",
+        "type": "string"
+      },
+      {
+        "internalType": "uint8",
+        "name": "_method",
+        "type": "uint8"
+      },
+      {
+        "internalType": "bytes",
+        "name": "_proof",
+        "type": "bytes"
+      }
+    ],
+    "name": "setSolverTxOnQuoteNetwork",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "string",
+        "name": "_orderId",
+        "type": "string"
+      },
+      {
+        "internalType": "string",
+        "name": "_userTxHash",
+        "type": "string"
+      },
+      {
+        "internalType": "uint8",
+        "name": "_method",
+        "type": "uint8"
+      },
+      {
+        "internalType": "bytes",
+        "name": "_proof",
+        "type": "bytes"
+      }
+    ],
+    "name": "setUserTxOnBaseNetwork",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

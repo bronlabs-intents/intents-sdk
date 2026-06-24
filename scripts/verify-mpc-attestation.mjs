@@ -27,7 +27,9 @@ const VECTOR = {
   orderId: 'order-abc',
   counterparty: '0x2222222222222222222222222222222222222222',
   token: '0x0',
-  amount: 1000000n,
+  baseAmount: 1000000n,
+  quoteAmount: 0n,
+  price: 2000000000000000000n,
 };
 
 const [scheme, publicKey, signature, preimageHex] = process.argv.slice(2);

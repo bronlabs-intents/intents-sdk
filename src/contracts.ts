@@ -59,6 +59,11 @@ export interface SettlementFromAddresses {
   solverSettlementFromAddress: string;
 }
 
+export interface SettlementProof {
+  method: bigint;
+  proof: string;
+}
+
 interface NetworkParams {
   gasLimit: number;
 }
@@ -84,11 +89,15 @@ export interface OrderEngineContract {
 
   getSettlementFromAddresses(orderId: string): Promise<SettlementFromAddresses>;
 
+  getUserTxProof(orderId: string): Promise<SettlementProof>;
+
+  getSolverTxProof(orderId: string): Promise<SettlementProof>;
+
   solverReact(orderId: string, solverAddressOnBaseChain: string, solverSettlementFromAddress: string, price: bigint, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
 
-  setUserTxOnBaseNetwork(orderId: string, txHash: string, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
+  setUserTxOnBaseNetwork(orderId: string, txHash: string, method: ethers.BigNumberish, proof: ethers.BytesLike, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
 
-  setSolverTxOnQuoteNetwork(orderId: string, txHash: string, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
+  setSolverTxOnQuoteNetwork(orderId: string, txHash: string, method: ethers.BigNumberish, proof: ethers.BytesLike, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
 
   setOracleConfirmUserTx(orderId: string, params?: NetworkParams): Promise<ethers.ContractTransactionResponse>;
 
