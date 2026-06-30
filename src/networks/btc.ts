@@ -24,6 +24,7 @@ interface BtcTransaction {
     };
   }>;
   confirmations: number;
+  blocktime?: number;
 }
 
 interface BtcUtxo {
@@ -129,7 +130,8 @@ export class BtcNetwork implements Network, AttestationCapable {
           to: recipientAddress,
           token: tokenAddress,
           amount: 0n,
-          confirmed: tx.confirmations >= this.confirmations
+          confirmed: tx.confirmations >= this.confirmations,
+          timestamp: tx.blocktime
         };
       }
 
@@ -142,7 +144,8 @@ export class BtcNetwork implements Network, AttestationCapable {
         to: recipientAddress,
         token: tokenAddress,
         amount,
-        confirmed: tx.confirmations >= this.confirmations
+        confirmed: tx.confirmations >= this.confirmations,
+        timestamp: tx.blocktime
       };
     } catch (error) {
       log.warn(`Failed to get transaction data for ${txHash}: ${error}`);

@@ -114,6 +114,20 @@ export class EvmNetwork implements Network, AttestationCapable {
     });
   }
 
+  async blockTimestamp(blockNumber: string): Promise<number | undefined> {
+    const { result } = await proxyFetch(this.rpcUrl, {
+      method: 'POST',
+      body: JSON.stringify({
+        id: 1,
+        jsonrpc: "2.0",
+        method: "eth_getBlockByNumber",
+        params: [blockNumber, false]
+      })
+    }).then((res) => res.json());
+
+    return result?.timestamp ? parseInt(result.timestamp, 16) : undefined;
+  }
+
   async getTxData(txHash: string, tokenAddress: string, recipientAddress: string, tokenId?: bigint): Promise<TransactionData | undefined> {
     const currentBlock = await this.provider.getBlockNumber();
 
@@ -136,6 +150,8 @@ export class EvmNetwork implements Network, AttestationCapable {
     const confirmed = (currentBlock - parseInt(receipt.blockNumber, 16)) >= this.confirmations;
 
     log.info(`Confirmations ${txHash}: ${currentBlock - parseInt(receipt.blockNumber, 16)}, confirmed: ${confirmed}`)
+
+    const timestamp = await this.blockTimestamp(receipt.blockNumber);
 
     if (receipt.status !== '0x1') {
       log.warn(`Transaction ${txHash} failed on blockchain: ${JSON.stringify(receipt)}`);
@@ -171,7 +187,8 @@ export class EvmNetwork implements Network, AttestationCapable {
         to,
         token: tokenAddress,
         amount: BigInt(value),
-        confirmed
+        confirmed,
+        timestamp
       };
     }
 
@@ -210,7 +227,8 @@ export class EvmNetwork implements Network, AttestationCapable {
         token: erc6909Log.address,
         tokenId: BigInt(erc6909Log.topics[3]),
         amount: decodeErc6909TransferAmount(erc6909Log.data),
-        confirmed
+        confirmed,
+        timestamp
       };
     }
 
@@ -241,7 +259,8 @@ export class EvmNetwork implements Network, AttestationCapable {
       to: '0x' + transferLog.topics[2].slice(26),
       token: transferLog.address,
       amount: BigInt(transferLog.data),
-      confirmed
+      confirmed,
+      timestamp
     };
   }
 

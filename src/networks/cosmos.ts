@@ -121,12 +121,17 @@ export class CosmosNetwork implements Network, AttestationCapable {
 
     log.info(`Confirmations ${txHash}: ${currentBlock}, confirmed: ${confirmed}`)
 
+    const txBlockResult = await this.rpcGet('block', { height: result.height });
+    const blockTime = txBlockResult?.block?.header?.time;
+    const timestamp = blockTime ? Math.floor(Date.parse(blockTime) / 1000) : undefined;
+
     return {
       from: transfer.sender || '',
       to: transfer.recipient || '',
       token: tokenAddress,
       amount: this.parseDenomAmount(transfer.amount || '', denom)!,
-      confirmed
+      confirmed,
+      timestamp
     }
   }
 

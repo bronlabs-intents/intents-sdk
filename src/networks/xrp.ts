@@ -76,6 +76,8 @@ export class XrpNetwork implements Network, AttestationCapable {
 
     const currentLedger = await this.getCurrentValidatedLedger();
     const confirmed = currentLedger - result.ledger_index >= this.confirmations;
+    // result.date is the ledger close time in the Ripple epoch (seconds since 2000-01-01); shift to unix.
+    const timestamp = typeof result.date === 'number' ? result.date + 946684800 : undefined;
 
     if (!meta || meta.TransactionResult !== 'tesSUCCESS') {
       log.warn(`Transaction ${txHash} failed: ${meta?.TransactionResult}`);
@@ -107,7 +109,8 @@ export class XrpNetwork implements Network, AttestationCapable {
         to: result.Destination,
         token: tokenAddress,
         amount: BigInt(deliveredAmount),
-        confirmed
+        confirmed,
+        timestamp
       };
     }
 
@@ -136,7 +139,8 @@ export class XrpNetwork implements Network, AttestationCapable {
       to: result.Destination,
       token: tokenAddress,
       amount,
-      confirmed
+      confirmed,
+      timestamp
     };
   }
 

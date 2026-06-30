@@ -99,7 +99,7 @@ export class TrxNetwork implements Network, AttestationCapable {
 
       if (!response) return;
 
-      const blockNumber = await this.request(
+      const info = await this.request(
         `/wallet/gettransactioninfobyid`,
         {
           method: "POST",
@@ -109,9 +109,11 @@ export class TrxNetwork implements Network, AttestationCapable {
           },
           body: JSON.stringify({ value: txHash })
         }
-      ).then((res) => res.blockNumber);
+      );
 
+      const blockNumber = info.blockNumber;
       const confirmed = currentBlock - blockNumber >= this.confirmations;
+      const timestamp = info.blockTimeStamp ? Math.floor(info.blockTimeStamp / 1000) : undefined;
 
       if (response.ret[0].contractRet != "SUCCESS") {
         log.warn(`Transaction ${txHash} failed on blockchain: ${response}`);
@@ -146,7 +148,8 @@ export class TrxNetwork implements Network, AttestationCapable {
         to: fromHex(contract.parameter.value.to_address),
         token: tokenAddress,
         amount: BigInt(contract.parameter.value.amount),
-        confirmed
+        confirmed,
+        timestamp
       };
     }
 
@@ -165,6 +168,7 @@ export class TrxNetwork implements Network, AttestationCapable {
     if (!response || !response.receipt) return;
 
     const confirmed = currentBlock - response.blockNumber >= this.confirmations;
+    const timestamp = response.blockTimeStamp ? Math.floor(response.blockTimeStamp / 1000) : undefined;
 
     if (response.receipt.result != "SUCCESS") {
       log.warn(`Transaction ${txHash} failed on blockchain: ${response}`);

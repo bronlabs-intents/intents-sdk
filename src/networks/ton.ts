@@ -85,6 +85,7 @@ export class TonNetwork implements Network, AttestationCapable {
     const tx = txResponse.transactions[0];
     const txSeqno = tx.mc_block_seqno ?? currentSeqno;
     const confirmed = currentSeqno - txSeqno >= this.confirmations;
+    const timestamp = typeof tx.now === 'number' ? tx.now : undefined;
 
     // exit_code is in description.compute_ph.exit_code for transactionsByMessage API
     // exit_code 0 = success, 1 = alternative success
@@ -108,10 +109,10 @@ export class TonNetwork implements Network, AttestationCapable {
     log.info(`Confirmations ${txHash}: ${currentSeqno - txSeqno}`);
 
     if (tokenAddress === "0x0") {
-      return this.parseNativeTransfer(tx, recipientAddress, confirmed);
+      return this.parseNativeTransfer(tx, recipientAddress, confirmed, timestamp);
     }
 
-    return this.parseJettonTransfer(txHash, tokenAddress, recipientAddress, confirmed);
+    return this.parseJettonTransfer(txHash, tokenAddress, recipientAddress, confirmed, timestamp);
   }
 
   /**
@@ -207,7 +208,8 @@ export class TonNetwork implements Network, AttestationCapable {
   private parseNativeTransfer(
     tx: any,
     recipientAddress: string,
-    confirmed: boolean
+    confirmed: boolean,
+    timestamp?: number
   ): TransactionData | undefined {
     const outMsgs = tx.out_msgs || [];
 
@@ -223,7 +225,8 @@ export class TonNetwork implements Network, AttestationCapable {
             to: destAddress,
             token: "0x0",
             amount: BigInt(msg.value || 0),
-            confirmed
+            confirmed,
+            timestamp
           };
         }
       }
@@ -237,7 +240,8 @@ export class TonNetwork implements Network, AttestationCapable {
         to: this.normalizeAddress(tx.account),
         token: "0x0",
         amount: BigInt(tx.in_msg.value),
-        confirmed
+        confirmed,
+        timestamp
       };
     }
 
@@ -248,7 +252,8 @@ export class TonNetwork implements Network, AttestationCapable {
     txHash: string,
     tokenAddress: string,
     recipientAddress: string,
-    confirmed: boolean
+    confirmed: boolean,
+    timestamp?: number
   ): Promise<TransactionData | undefined> {
     // The jetton transfer is emitted by the sender's jetton-wallet tx — a child of the user-wallet tx
     // whose hash we are given. Walk the trace to collect every related tx hash, then look up the
@@ -298,7 +303,8 @@ export class TonNetwork implements Network, AttestationCapable {
       to: destAddress,
       token: tokenAddress,
       amount: BigInt(transfer.amount || 0),
-      confirmed
+      confirmed,
+      timestamp
     };
   }
 

@@ -16,6 +16,9 @@ export interface TransactionData {
   tokenId?: bigint;
   amount: bigint;
   confirmed: boolean;
+  // Block-inclusion time in unix seconds. The oracle rejects a settlement tx mined at or before the
+  // order's auction-end (createdAt + auctionDuration) — a settlement can't predate its own order.
+  timestamp?: number;
 }
 
 export interface Network {
