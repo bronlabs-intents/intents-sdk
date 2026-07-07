@@ -9,6 +9,8 @@ export interface NetworkConfig {
   clientId?: string;
   clientSecret?: string;
   daUtilitiesApiUrl?: string;
+  bronApiUrl?: string;
+  bronApiKey?: string;
   reconcileInterval?: number;
   TBAWaitPeriodSeconds?: number;
 }

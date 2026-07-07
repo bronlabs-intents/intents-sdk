@@ -4,7 +4,7 @@ import { EvmNetwork } from './evm.js';
 import { TrxNetwork } from './trx.js';
 import { SolNetwork } from './sol.js';
 import { TonNetwork } from './ton.js';
-import { CantonNetwork } from './canton.js';
+import { BronCantonNetwork } from './bron-canton.js';
 import { BtcNetwork } from './btc.js';
 import { CosmosNetwork } from "./cosmos.js";
 import { XrpNetwork } from './xrp.js';
@@ -47,7 +47,7 @@ const networkBuilders = {
   "testOP": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 10),
   "testTRX": (cf: NetworkConfig) => new TrxNetwork(cf.rpcUrl, 10),
   "testSOL": (cf: NetworkConfig) => new SolNetwork(cf.rpcUrl, 10),
-  "testCC": (cf: NetworkConfig) => new CantonNetwork(cf.rpcUrl, cf.ledgerApiUrl, cf.scanApiUrl, cf.authUrl, cf.clientId, cf.clientSecret, cf.walletAddress, cf.daUtilitiesApiUrl),
+  "testCC": (cf: NetworkConfig) => new BronCantonNetwork("testCC", cf.bronApiUrl, cf.bronApiKey, cf.daUtilitiesApiUrl),
   "testXRP": (cf: NetworkConfig) => new XrpNetwork(cf.rpcUrl, 1),
   "testGNK": (cf: NetworkConfig) => new CosmosNetwork(cf.rpcUrl, 'ngonka', 'gonka', 0, 1),
   
@@ -62,14 +62,14 @@ const networkBuilders = {
   "TRX": (cf: NetworkConfig) => new TrxNetwork(cf.rpcUrl, 20),
   "SOL": (cf: NetworkConfig) => new SolNetwork(cf.rpcUrl, 20),
   "TON": (cf: NetworkConfig) => new TonNetwork(cf.rpcUrl, 20),
-  "CC": (cf: NetworkConfig) => new CantonNetwork(cf.rpcUrl, cf.ledgerApiUrl, cf.scanApiUrl, cf.authUrl, cf.clientId, cf.clientSecret, cf.walletAddress, cf.daUtilitiesApiUrl),
+  "CC": (cf: NetworkConfig) => new BronCantonNetwork("CC", cf.bronApiUrl, cf.bronApiKey, cf.daUtilitiesApiUrl),
   "GNK": (cf: NetworkConfig) => new CosmosNetwork(cf.rpcUrl, 'ngonka', 'gonka', 0, 1),
   "XRP": (cf: NetworkConfig) => new XrpNetwork(cf.rpcUrl, 1),
 }
 
 export const initNetworks = (configs: { [key: string]: NetworkConfig }, filter?: (cfg: NetworkConfig) => boolean) =>
   Object.entries(networkBuilders).reduce((acc, [networkName, builder]) => {
-    if (configs[networkName]?.rpcUrl && (!filter || filter(configs[networkName]))) {
+    if ((configs[networkName]?.rpcUrl || configs[networkName]?.bronApiUrl) && (!filter || filter(configs[networkName]))) {
       acc[networkName] = builder(configs[networkName])
       acc[networkName].reconcileInterval = configs[networkName].reconcileInterval;
       acc[networkName].TBAWaitPeriodSeconds = configs[networkName].TBAWaitPeriodSeconds;

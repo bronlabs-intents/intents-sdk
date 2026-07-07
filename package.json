@@ -38,6 +38,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@bronlabs/bron-sdk": "1.0.54",
     "@cosmjs/proto-signing": "^0.37.0",
     "@cosmjs/stargate": "^0.37.0",
     "@cosmjs/tendermint-rpc": "^0.37.0",
