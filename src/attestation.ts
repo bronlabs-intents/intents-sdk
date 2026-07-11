@@ -208,18 +208,31 @@ export async function verifyEd25519(publicKey: string, signature: string, preima
 // methods are allowed per network — lives HERE so the submitter (defi-js / pilates) and the verifier
 // (oracle) share one source of truth. Adding a method is an SDK change, not a contract change.
 //
-// Today exactly one method is wired (payer-signature) and every network allows it.
+// Method 1 (payer-signature) is allowed on every network; method 2 (mint payer-signature) only on the
+// EVM + Solana networks that host consumer-token mints.
 // ---------------------------------------------------------------------------
 
 export enum SettlementMethod {
   None = 0,
   PayerSignature = 1,
+  MintPayerSignature = 2,
 }
 
-const ALLOWED_SETTLEMENT_METHODS: SettlementMethod[] = [SettlementMethod.PayerSignature];
+// A consumer-token mint has a zero token-level `from`, so the oracle resolves the settlement sender
+// from the tx envelope — sound only on the EVM chains that host such mints (Solana not yet supported).
+const MINT_SETTLEMENT_NETWORKS = new Set<string>([
+  'ETH', 'OP', 'BSC', 'BASE', 'POL', 'ARB', 'hyperEVM',
+  'testETH', 'testOP',
+]);
 
-export function allowedSettlementMethods(_networkId: string): SettlementMethod[] {
-  return ALLOWED_SETTLEMENT_METHODS;
+export function allowedSettlementMethods(networkId: string): SettlementMethod[] {
+  const methods: SettlementMethod[] = [SettlementMethod.PayerSignature];
+
+  if (MINT_SETTLEMENT_NETWORKS.has(networkId)) {
+    methods.push(SettlementMethod.MintPayerSignature);
+  }
+
+  return methods;
 }
 
 const PAYER_SIGNATURE_PROOF_TYPES = ['bytes', 'bytes'];
@@ -237,6 +250,9 @@ export function decodePayerSignatureProof(proof: string): { publicKey: string; s
 export interface SettlementProofInput {
   method: number;
   proof: string;
+  // Set by the oracle when the settlement log's token-level `from` was the zero/empty sender (a mint);
+  // MintPayerSignature is rejected unless this is true (G1).
+  mintContext?: { logFromWasZero: boolean };
 }
 
 export interface SettlementProofVerification {
@@ -251,7 +267,8 @@ export interface SettlementProofVerification {
  * Verify the on-chain SettlementProof for one settlement leg. Dispatches on `method` against the
  * network's allow-list — an unknown or disallowed method fails closed. PayerSignature: decode the
  * proof to (publicKey, signature), check the key controls `orderFrom` (sigBound) and the signature
- * covers the canonical preimage (sigValid).
+ * covers the canonical preimage (sigValid). MintPayerSignature: the same check, accepted only for a
+ * mint (mintContext.logFromWasZero) where the oracle resolved `orderFrom` from the tx envelope.
  */
 export async function verifySettlementProof(
   network: AttestationCapable,
@@ -269,7 +286,14 @@ export async function verifySettlementProof(
   }
 
   switch (input.method) {
-    case SettlementMethod.PayerSignature: {
+    case SettlementMethod.PayerSignature:
+    case SettlementMethod.MintPayerSignature: {
+      // G1: MintPayerSignature is valid only for a mint (token-level `from` == zero); rejecting it
+      // otherwise stops a relayer rebinding a normal transfer to the envelope sender it controls.
+      if (input.method === SettlementMethod.MintPayerSignature && !input.mintContext?.logFromWasZero) {
+        return { present: true, methodAllowed: true, valid: false };
+      }
+
       const { publicKey, signature } = decodePayerSignatureProof(input.proof);
       const preimage = buildAttestationPreimage(preimageParams);
 

@@ -272,6 +272,29 @@ test('verifySettlementProof: PayerSignature verifies a real proof, rejects tampe
   expect(unknown).toMatchObject({ present: true, methodAllowed: false, valid: false });
 });
 
+test('verifySettlementProof: MintPayerSignature verifies only for a mint (G1) and only on mint-hosting networks (G4)', async () => {
+  const wallet = new ethers.Wallet('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
+  const net = new EvmNetwork(RPC, 1);
+  const sig = wallet.signingKey.sign(secp256k1Digest(buildAttestationPreimage(params))).serialized;
+  const proof = encodePayerSignatureProof(wallet.signingKey.publicKey, sig);
+
+  // mint (logFromWasZero) + minter signature bound to the resolved orderFrom → valid
+  const minted = await verifySettlementProof(net, 'ETH', { method: SettlementMethod.MintPayerSignature, proof, mintContext: { logFromWasZero: true } }, params, wallet.address);
+  expect(minted).toMatchObject({ present: true, methodAllowed: true, sigBound: true, sigValid: true, valid: true });
+
+  // G1: same valid proof but the log-from was NOT zero (not a mint) — rejected before the signature is used
+  const notMint = await verifySettlementProof(net, 'ETH', { method: SettlementMethod.MintPayerSignature, proof, mintContext: { logFromWasZero: false } }, params, wallet.address);
+  expect(notMint).toMatchObject({ present: true, methodAllowed: true, valid: false });
+
+  // G1: mintContext omitted entirely — still rejected
+  const noContext = await verifySettlementProof(net, 'ETH', { method: SettlementMethod.MintPayerSignature, proof }, params, wallet.address);
+  expect(noContext.valid).toBe(false);
+
+  // G4: method 2 is not allowed on a non-mint-hosting network — never reaches verification
+  const wrongNet = await verifySettlementProof(net, 'BTC', { method: SettlementMethod.MintPayerSignature, proof, mintContext: { logFromWasZero: true } }, params, wallet.address);
+  expect(wrongNet).toMatchObject({ present: true, methodAllowed: false, valid: false });
+});
+
 test('ed25519 chains derive + verify (SOL/TON)', async () => {
   const priv = ed25519.utils.randomSecretKey();
   const pub = await ed25519.getPublicKeyAsync(priv);

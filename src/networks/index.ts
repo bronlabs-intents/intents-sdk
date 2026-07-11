@@ -19,6 +19,9 @@ export interface TransactionData {
   // Block-inclusion time in unix seconds. The oracle rejects a settlement tx mined at or before the
   // order's auction-end (createdAt + auctionDuration) — a settlement can't predate its own order.
   timestamp?: number;
+  // The transaction's envelope sender (EVM: receipt.from). A mint has a zero token-level `from`, so
+  // the oracle falls back to this for method-2 settlements.
+  envelopeFrom?: string;
 }
 
 export interface Network {
@@ -27,7 +30,8 @@ export interface Network {
 
   getDecimals(tokenAddress: string, tokenId?: bigint): Promise<number>;
 
-  // implementations MUST populate TransactionData.tokenId when tokenId is passed — oracle id validation relies on it
+  // implementations MUST populate TransactionData.tokenId when tokenId is passed — oracle id validation relies on it;
+  // on mint-hosting EVM networks they MUST also populate envelopeFrom so method-2 settlements verify
   getTxData(txHash: string, tokenAddress: string, recipientAddress: string, tokenId?: bigint): Promise<TransactionData | undefined>;
 
   /**
