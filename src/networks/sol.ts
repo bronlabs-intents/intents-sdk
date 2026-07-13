@@ -95,7 +95,7 @@ export class SolNetwork implements Network, AttestationCapable {
 
     const blockNumber = result.slot || currentBlock;
     const confirmed = currentBlock - blockNumber >= this.confirmations
-    const timestamp = typeof result.blockTime === 'number' ? result.blockTime : undefined;
+    const timestamp = typeof result.blockTime === 'number' ? result.blockTime : 0;
 
     if (result.meta?.err) {
       log.warn(`Transaction ${txHash} failed on blockchain: ${result}`);
@@ -105,7 +105,8 @@ export class SolNetwork implements Network, AttestationCapable {
         to: "",
         token: "",
         amount: 0n,
-        confirmed
+        confirmed,
+        timestamp
       };
     }
 
@@ -128,7 +129,8 @@ export class SolNetwork implements Network, AttestationCapable {
           to: "",
           token: "",
           amount: 0n,
-          confirmed
+          confirmed,
+          timestamp
         };
       }
 
@@ -187,7 +189,8 @@ export class SolNetwork implements Network, AttestationCapable {
         to: "",
         token: "",
         amount: 0n,
-        confirmed
+        confirmed,
+        timestamp
       };
     }
 

@@ -77,16 +77,16 @@ export class XrpNetwork implements Network, AttestationCapable {
     const currentLedger = await this.getCurrentValidatedLedger();
     const confirmed = currentLedger - result.ledger_index >= this.confirmations;
     // result.date is the ledger close time in the Ripple epoch (seconds since 2000-01-01); shift to unix.
-    const timestamp = typeof result.date === 'number' ? result.date + 946684800 : undefined;
+    const timestamp = typeof result.date === 'number' ? result.date + 946684800 : 0;
 
     if (!meta || meta.TransactionResult !== 'tesSUCCESS') {
       log.warn(`Transaction ${txHash} failed: ${meta?.TransactionResult}`);
-      return { from: "", to: "", token: "", amount: 0n, confirmed };
+      return { from: "", to: "", token: "", amount: 0n, confirmed, timestamp };
     }
 
     if (result.Destination !== recipientAddress) {
       log.warn(`Transaction ${txHash} destination ${result.Destination} does not match ${recipientAddress}`);
-      return { from: "", to: "", token: "", amount: 0n, confirmed };
+      return { from: "", to: "", token: "", amount: 0n, confirmed, timestamp };
     }
 
     const deliveredAmount = meta.delivered_amount;
@@ -123,7 +123,7 @@ export class XrpNetwork implements Network, AttestationCapable {
 
     if (deliveredAmount.currency !== currency || deliveredAmount.issuer !== issuer) {
       log.warn(`Transaction ${txHash} delivered ${deliveredAmount.currency}:${deliveredAmount.issuer} does not match ${currency}:${issuer}`);
-      return { from: "", to: "", token: "", amount: 0n, confirmed };
+      return { from: "", to: "", token: "", amount: 0n, confirmed, timestamp };
     }
 
     const decimals = await this.getDecimals(tokenAddress);

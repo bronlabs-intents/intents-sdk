@@ -85,7 +85,7 @@ export class TonNetwork implements Network, AttestationCapable {
     const tx = txResponse.transactions[0];
     const txSeqno = tx.mc_block_seqno ?? currentSeqno;
     const confirmed = currentSeqno - txSeqno >= this.confirmations;
-    const timestamp = typeof tx.now === 'number' ? tx.now : undefined;
+    const timestamp = typeof tx.now === 'number' ? tx.now : 0;
 
     // exit_code is in description.compute_ph.exit_code for transactionsByMessage API
     // exit_code 0 = success, 1 = alternative success
@@ -102,7 +102,8 @@ export class TonNetwork implements Network, AttestationCapable {
         to: "",
         token: "",
         amount: 0n,
-        confirmed
+        confirmed,
+        timestamp
       };
     }
 
@@ -209,7 +210,7 @@ export class TonNetwork implements Network, AttestationCapable {
     tx: any,
     recipientAddress: string,
     confirmed: boolean,
-    timestamp?: number
+    timestamp: number
   ): TransactionData | undefined {
     const outMsgs = tx.out_msgs || [];
 
@@ -253,7 +254,7 @@ export class TonNetwork implements Network, AttestationCapable {
     tokenAddress: string,
     recipientAddress: string,
     confirmed: boolean,
-    timestamp?: number
+    timestamp: number
   ): Promise<TransactionData | undefined> {
     // The jetton transfer is emitted by the sender's jetton-wallet tx — a child of the user-wallet tx
     // whose hash we are given. Walk the trace to collect every related tx hash, then look up the

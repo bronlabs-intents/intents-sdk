@@ -114,7 +114,7 @@ export class EvmNetwork implements Network, AttestationCapable {
     });
   }
 
-  async blockTimestamp(blockNumber: string): Promise<number | undefined> {
+  async blockTimestamp(blockNumber: string): Promise<number> {
     const { result } = await proxyFetch(this.rpcUrl, {
       method: 'POST',
       body: JSON.stringify({
@@ -125,7 +125,7 @@ export class EvmNetwork implements Network, AttestationCapable {
       })
     }).then((res) => res.json());
 
-    return result?.timestamp ? parseInt(result.timestamp, 16) : undefined;
+    return result?.timestamp ? parseInt(result.timestamp, 16) : 0;
   }
 
   async getTxData(txHash: string, tokenAddress: string, recipientAddress: string, tokenId?: bigint): Promise<TransactionData | undefined> {
@@ -161,7 +161,8 @@ export class EvmNetwork implements Network, AttestationCapable {
         to: "",
         token: "",
         amount: 0n,
-        confirmed
+        confirmed,
+        timestamp
       };
     }
 
@@ -218,7 +219,8 @@ export class EvmNetwork implements Network, AttestationCapable {
           to: "",
           token: "",
           amount: 0n,
-          confirmed
+          confirmed,
+          timestamp
         };
       }
 
@@ -252,7 +254,8 @@ export class EvmNetwork implements Network, AttestationCapable {
         to: "",
         token: "",
         amount: 0n,
-        confirmed
+        confirmed,
+        timestamp
       };
     }
 

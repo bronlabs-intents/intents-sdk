@@ -79,7 +79,8 @@ export class CosmosNetwork implements Network, AttestationCapable {
         to: "",
         token: "",
         amount: 0n,
-        confirmed: false
+        confirmed: false,
+        timestamp: 0
       }
     }
 
@@ -107,7 +108,8 @@ export class CosmosNetwork implements Network, AttestationCapable {
         to: "",
         token: "",
         amount: 0n,
-        confirmed: false
+        confirmed: false,
+        timestamp: 0
       }
     }
 
@@ -123,7 +125,7 @@ export class CosmosNetwork implements Network, AttestationCapable {
 
     const txBlockResult = await this.rpcGet('block', { height: result.height });
     const blockTime = txBlockResult?.block?.header?.time;
-    const timestamp = blockTime ? Math.floor(Date.parse(blockTime) / 1000) : undefined;
+    const timestamp = blockTime ? Math.floor(Date.parse(blockTime) / 1000) : 0;
 
     return {
       from: transfer.sender || '',

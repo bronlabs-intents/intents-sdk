@@ -113,7 +113,7 @@ export class CantonNetwork implements Network, AttestationCapable {
       throw new Error(`Invalid Canton tx hash: order = ${txHash}, tx = ${json.update.Transaction.value?.updateId}`);
     }
 
-    const timestamp = txValue.recordTime ? Math.floor(Date.parse(txValue.recordTime) / 1000) : undefined;
+    const timestamp = txValue.recordTime ? Math.floor(Date.parse(txValue.recordTime) / 1000) : 0;
 
     const events = txValue.events as any[];
     const transferFactoryEvent = events.find(e => e.ExercisedEvent?.choice === 'TransferFactory_Transfer');
@@ -138,7 +138,8 @@ export class CantonNetwork implements Network, AttestationCapable {
         to: "",
         token: "",
         amount: 0n,
-        confirmed: false
+        confirmed: false,
+        timestamp
       };
     }
 
@@ -274,7 +275,8 @@ export class CantonNetwork implements Network, AttestationCapable {
         to: "",
         token: "",
         amount: 0n,
-        confirmed: true
+        confirmed: true,
+        timestamp
       };
     }
   }

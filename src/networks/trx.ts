@@ -113,7 +113,7 @@ export class TrxNetwork implements Network, AttestationCapable {
 
       const blockNumber = info.blockNumber;
       const confirmed = currentBlock - blockNumber >= this.confirmations;
-      const timestamp = info.blockTimeStamp ? Math.floor(info.blockTimeStamp / 1000) : undefined;
+      const timestamp = info.blockTimeStamp ? Math.floor(info.blockTimeStamp / 1000) : 0;
 
       if (response.ret[0].contractRet != "SUCCESS") {
         log.warn(`Transaction ${txHash} failed on blockchain: ${response}`);
@@ -123,7 +123,8 @@ export class TrxNetwork implements Network, AttestationCapable {
           to: "",
           token: "",
           amount: 0n,
-          confirmed
+          confirmed,
+          timestamp
         };
       }
 
@@ -139,7 +140,8 @@ export class TrxNetwork implements Network, AttestationCapable {
           to: "",
           token: "",
           amount: 0n,
-          confirmed
+          confirmed,
+          timestamp
         };
       }
 
@@ -168,7 +170,7 @@ export class TrxNetwork implements Network, AttestationCapable {
     if (!response || !response.receipt) return;
 
     const confirmed = currentBlock - response.blockNumber >= this.confirmations;
-    const timestamp = response.blockTimeStamp ? Math.floor(response.blockTimeStamp / 1000) : undefined;
+    const timestamp = response.blockTimeStamp ? Math.floor(response.blockTimeStamp / 1000) : 0;
 
     if (response.receipt.result != "SUCCESS") {
       log.warn(`Transaction ${txHash} failed on blockchain: ${response}`);
@@ -178,7 +180,8 @@ export class TrxNetwork implements Network, AttestationCapable {
         to: "",
         token: "",
         amount: 0n,
-        confirmed
+        confirmed,
+        timestamp
       };
     }
 
@@ -203,7 +206,8 @@ export class TrxNetwork implements Network, AttestationCapable {
         to: "",
         token: "",
         amount: 0n,
-        confirmed
+        confirmed,
+        timestamp
       };
     }
 
@@ -214,7 +218,8 @@ export class TrxNetwork implements Network, AttestationCapable {
       to: fromHex("0x" + addrBody(transferLog.topics[2])),
       token: fromHex("0x" + tokenBody),
       amount: amountHex ? BigInt("0x" + amountHex) : 0n,
-      confirmed
+      confirmed,
+      timestamp
     };
   }
 

@@ -16,9 +16,10 @@ export interface TransactionData {
   tokenId?: bigint;
   amount: bigint;
   confirmed: boolean;
-  // Block-inclusion time in unix seconds. The oracle rejects a settlement tx mined at or before the
-  // order's auction-end (createdAt + auctionDuration) — a settlement can't predate its own order.
-  timestamp?: number;
+  // Block-inclusion time in unix seconds, 0 when the node did not report one. The oracle rejects a
+  // settlement tx mined at or before the order's auction-end (createdAt + auctionDuration) — a
+  // settlement can't predate its own order, so 0 fails closed.
+  timestamp: number;
   // The transaction's envelope sender (EVM: receipt.from). A mint has a zero token-level `from`, so
   // the oracle falls back to this for method-2 settlements.
   envelopeFrom?: string;

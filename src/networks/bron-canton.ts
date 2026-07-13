@@ -76,7 +76,7 @@ export class BronCantonNetwork implements Network, AttestationCapable {
       tokenId,
       amount: BigInt(tx.amount),
       confirmed: tx.completed,
-      timestamp: tx.completedAt != null ? Math.floor(tx.completedAt / 1000) : undefined
+      timestamp: tx.completedAt != null ? Math.floor(tx.completedAt / 1000) : 0
     };
   }
 

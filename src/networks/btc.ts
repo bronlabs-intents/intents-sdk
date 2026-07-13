@@ -131,7 +131,7 @@ export class BtcNetwork implements Network, AttestationCapable {
           token: tokenAddress,
           amount: 0n,
           confirmed: tx.confirmations >= this.confirmations,
-          timestamp: tx.blocktime
+          timestamp: tx.blocktime ?? 0
         };
       }
 
@@ -145,7 +145,7 @@ export class BtcNetwork implements Network, AttestationCapable {
         token: tokenAddress,
         amount,
         confirmed: tx.confirmations >= this.confirmations,
-        timestamp: tx.blocktime
+        timestamp: tx.blocktime ?? 0
       };
     } catch (error) {
       log.warn(`Failed to get transaction data for ${txHash}: ${error}`);
