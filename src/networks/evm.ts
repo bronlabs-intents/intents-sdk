@@ -188,7 +188,8 @@ export class EvmNetwork implements Network, AttestationCapable {
         token: tokenAddress,
         amount: BigInt(value),
         confirmed,
-        timestamp
+        timestamp,
+        envelopeFrom: receipt.from
       };
     }
 
@@ -228,7 +229,8 @@ export class EvmNetwork implements Network, AttestationCapable {
         tokenId: BigInt(erc6909Log.topics[3]),
         amount: decodeErc6909TransferAmount(erc6909Log.data),
         confirmed,
-        timestamp
+        timestamp,
+        envelopeFrom: receipt.from
       };
     }
 
@@ -260,7 +262,8 @@ export class EvmNetwork implements Network, AttestationCapable {
       token: transferLog.address,
       amount: BigInt(transferLog.data),
       confirmed,
-      timestamp
+      timestamp,
+      envelopeFrom: receipt.from
     };
   }
 
