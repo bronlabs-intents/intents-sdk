@@ -11,12 +11,35 @@ let nonProxyHosts: string[] = [];
 
 export function configureProxy(url?: string, noProxyHosts: string[] = []): void {
   proxyAgent = url
-    ? new HttpsProxyAgent(url, { rejectUnauthorized: false })
+    ? new HttpsProxyAgent(normalizeProxyUrl(url), { rejectUnauthorized: false })
     : undefined;
   nonProxyHosts = [...ALWAYS_NO_PROXY, ...noProxyHosts];
 
   if (proxyAgent) {
     log.info(`Using proxy: ${proxyAgent.proxy.hostname}:${proxyAgent.proxy.port}`)
+  }
+}
+
+// Proxy credentials may contain characters that are invalid in a raw URL (e.g. `\` or `[`).
+// Percent-encode the userinfo in that case; https-proxy-agent decodes it back for Proxy-Authorization.
+export function normalizeProxyUrl(url: string): string {
+  try {
+    new URL(url);
+    return url;
+  } catch (e) {
+    const match = url.match(/^([a-z][\w+.-]*:\/\/)?(.*)@([^@]+)$/i);
+
+    if (!match) {
+      throw e;
+    }
+
+    const [, scheme = '', userinfo, host] = match;
+    const sep = userinfo.indexOf(':');
+    const auth = sep === -1
+      ? encodeURIComponent(userinfo)
+      : `${encodeURIComponent(userinfo.slice(0, sep))}:${encodeURIComponent(userinfo.slice(sep + 1))}`;
+
+    return `${scheme}${auth}@${host}`;
   }
 }
 
