@@ -32,8 +32,10 @@ export interface Network {
   getDecimals(tokenAddress: string, tokenId?: bigint): Promise<number>;
 
   // implementations MUST populate TransactionData.tokenId when tokenId is passed — oracle id validation relies on it;
-  // on mint-hosting EVM networks they MUST also populate envelopeFrom so method-2 settlements verify
-  getTxData(txHash: string, tokenAddress: string, recipientAddress: string, tokenId?: bigint): Promise<TransactionData | undefined>;
+  // on mint-hosting EVM networks they MUST also populate envelopeFrom so method-2 settlements verify.
+  // senderAddress is the expected payer: UTXO networks use it to attribute `from` on multi-address
+  // inputs (returned as-is only when it provably co-signed the whole tx), account networks ignore it.
+  getTxData(txHash: string, tokenAddress: string, recipientAddress: string, tokenId?: bigint, senderAddress?: string): Promise<TransactionData | undefined>;
 
   /**
    * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.

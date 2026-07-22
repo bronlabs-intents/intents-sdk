@@ -9,22 +9,50 @@ import { log } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 import { randomUUID } from 'node:crypto';
 
+interface BtcTxInput {
+  txid?: string;
+  vout?: number;
+  coinbase?: string;
+  txinwitness?: string[];
+  scriptSig?: { hex?: string };
+}
+
 interface BtcTransaction {
   txid: string;
-  vin: Array<{
-    txid?: string;
-    vout?: number;
-    coinbase?: string;
-  }>;
+  vin: BtcTxInput[];
   vout: Array<{
     value: bigint;
     scriptPubKey: {
       address?: string;
       addresses?: string[];
+      type?: string;
     };
   }>;
   confirmations: number;
   blocktime?: number;
+}
+
+const SIGHASH_ALL = 0x01;
+
+// True when every signature in the input commits to all outputs (SIGHASH_ALL; taproot 64-byte =
+// SIGHASH_DEFAULT). Any other flag (NONE/SINGLE/ANYONECANPAY) lets a third party graft the input
+// into a tx its owner never authorized, so sender attribution must fail closed.
+export function inputSignsAllOutputs(vin: BtcTxInput, prevOutType?: string): boolean {
+  const witness = (vin.txinwitness ?? []).map(h => Buffer.from(h, 'hex'));
+
+  if (prevOutType === 'witness_v1_taproot') {
+    const items = witness.length > 1 && witness[witness.length - 1]?.[0] === 0x50 ? witness.slice(0, -1) : witness;
+    if (items.length !== 1) return false;
+
+    const sig = items[0];
+    return sig.length === 64 || (sig.length === 65 && sig[64] === SIGHASH_ALL);
+  }
+
+  const scriptSigChunks = vin.scriptSig?.hex ? (bitcoin.script.decompile(Buffer.from(vin.scriptSig.hex, 'hex')) ?? []) : [];
+  const candidates = [...witness, ...scriptSigChunks.filter((c): c is Buffer => Buffer.isBuffer(c))];
+  const sigs = candidates.filter(b => b.length >= 9 && b.length <= 73 && b[0] === 0x30 && b[1] === b.length - 3);
+
+  return sigs.length > 0 && sigs.every(s => s[s.length - 1] === SIGHASH_ALL);
 }
 
 interface BtcUtxo {
@@ -89,7 +117,7 @@ export class BtcNetwork implements Network, AttestationCapable {
     return this.nativeAssetDecimals;
   }
 
-  async getTxData(txHash: string, tokenAddress: string, recipientAddress: string): Promise<TransactionData | undefined> {
+  async getTxData(txHash: string, tokenAddress: string, recipientAddress: string, _tokenId?: bigint, senderAddress?: string): Promise<TransactionData | undefined> {
     if (tokenAddress !== "0x0") {
       throw new Error("Don't support tokens for BTC network");
     }
@@ -98,24 +126,27 @@ export class BtcNetwork implements Network, AttestationCapable {
       const tx = await this.rpcCall('getrawtransaction', [txHash, true]) as BtcTransaction;
       if (!tx) return;
 
-      // UTXO has no single canonical sender. Only attribute `from` for a single-input, non-coinbase
-      // tx; otherwise leave it empty so the oracle's senderValid fails closed. A multi-input tx can
-      // pool funds from addresses the attester doesn't control, which would break the senderValid →
-      // sigBound chain. An attested BTC settlement must therefore spend exactly one input.
+      // UTXO has no single canonical sender. All inputs from one address → that address is `from`
+      // (no other party funded the tx). Several distinct addresses (HD-wallet change outputs) →
+      // attribute the expected senderAddress, but only when it owns an input and every signature is
+      // SIGHASH_ALL, so each input owner authorized exactly this payment; otherwise fail closed for
+      // the senderValid → sigBound chain.
       let from = "";
-      if (tx.vin.length === 1) {
-        const firstInput = tx.vin[0];
-        if (firstInput && firstInput.txid && firstInput.vout !== undefined) {
-          try {
-            const prevTx = await this.rpcCall('getrawtransaction', [firstInput.txid, true]) as BtcTransaction;
-            const inputScript = prevTx.vout[firstInput.vout].scriptPubKey;
-            from = inputScript.address || inputScript.addresses?.[0] || "";
-          } catch (e) {
-            log.warn(`Failed to get sender address for ${txHash}: ${e}`);
-          }
-        }
+
+      const inputs = await this.resolveInputs(tx);
+      if (!inputs) {
+        log.warn(`Transaction ${txHash} has unresolvable inputs; refusing to attribute a sender`);
       } else {
-        log.warn(`Transaction ${txHash} has ${tx.vin.length} inputs; refusing to attribute a single sender`);
+        const distinct = [...new Set(inputs.map(i => i.address))];
+
+        if (distinct.length === 1) {
+          from = distinct[0];
+        } else if (senderAddress && distinct.includes(senderAddress) && inputs.every(i => inputSignsAllOutputs(i.vin, i.prevOutType))) {
+          from = senderAddress;
+          log.info(`Transaction ${txHash}: expected sender ${senderAddress} owns an input and all ${tx.vin.length} inputs are SIGHASH_ALL; attributing it as sender`);
+        } else {
+          log.warn(`Transaction ${txHash} has ${distinct.length} distinct input addresses; refusing to attribute a sender`);
+        }
       }
 
       const outputs = tx.vout.filter(vout =>
@@ -149,6 +180,31 @@ export class BtcNetwork implements Network, AttestationCapable {
       };
     } catch (error) {
       log.warn(`Failed to get transaction data for ${txHash}: ${error}`);
+      return;
+    }
+  }
+
+  private async resolveInputs(tx: BtcTransaction): Promise<Array<{ vin: BtcTxInput; address: string; prevOutType?: string }> | undefined> {
+    if (tx.vin.length === 0 || tx.vin.some(v => v.coinbase || !v.txid || v.vout === undefined)) return;
+
+    try {
+      const prevTxs = new Map<string, BtcTransaction>();
+      await Promise.all([...new Set(tx.vin.map(v => v.txid!))].map(async txid => {
+        prevTxs.set(txid, await this.rpcCall('getrawtransaction', [txid, true]) as BtcTransaction);
+      }));
+
+      const inputs: Array<{ vin: BtcTxInput; address: string; prevOutType?: string }> = [];
+      for (const vin of tx.vin) {
+        const prevOut = prevTxs.get(vin.txid!)?.vout[vin.vout!];
+        const address = prevOut?.scriptPubKey.address || prevOut?.scriptPubKey.addresses?.[0];
+        if (!address) return;
+
+        inputs.push({ vin, address, prevOutType: prevOut!.scriptPubKey.type });
+      }
+
+      return inputs;
+    } catch (e) {
+      log.warn(`Failed to resolve input addresses for ${tx.txid}: ${e}`);
       return;
     }
   }
