@@ -201,6 +201,123 @@ export async function verifyEd25519(publicKey: string, signature: string, preima
 }
 
 // ---------------------------------------------------------------------------
+// EIP-712 payer signature (method 3) — external EVM wallets that cannot sign a raw digest.
+// V1 fields, EIP-712 framing; \x19\x01 keeps this digest structurally distinct from the V1
+// ABI preimage, so one signature can never verify under both methods.
+// ---------------------------------------------------------------------------
+
+export const EIP712_ATTESTATION_DOMAIN_NAME = 'BronIntentSettlement';
+export const EIP712_ATTESTATION_DOMAIN_VERSION = '1';
+
+// chainId is part of the domain separator and every oracle must derive it identically offline —
+// pinned here (EIP-155 ids of the settlement chain) so per-oracle config drift can't split quorum.
+export const EIP712_SETTLEMENT_CHAIN_IDS: Record<string, number> = {
+  ETH: 1,
+  OP: 10,
+  BSC: 56,
+  POL: 137,
+  BASE: 8453,
+  ARB: 42161,
+  hyperEVM: 999,
+  testETH: 11155111,
+  testOP: 11155420,
+};
+
+const EIP712_SETTLEMENT_TYPES: Record<string, { name: string; type: string }[]> = {
+  Settlement: [
+    { name: 'orderEngine', type: 'address' },
+    { name: 'leg', type: 'string' },
+    { name: 'orderId', type: 'string' },
+    { name: 'counterparty', type: 'string' },
+    { name: 'token', type: 'string' },
+    { name: 'baseAmount', type: 'uint256' },
+    { name: 'quoteAmount', type: 'uint256' },
+    { name: 'price', type: 'uint256' },
+  ],
+};
+
+// ethers shape (signTypedData / TypedDataEncoder reject an EIP712Domain entry in `types`).
+export function buildAttestationTypedData(params: AttestationMessageParams, chainId: number) {
+  return {
+    domain: { name: EIP712_ATTESTATION_DOMAIN_NAME, version: EIP712_ATTESTATION_DOMAIN_VERSION, chainId },
+    types: EIP712_SETTLEMENT_TYPES,
+    primaryType: 'Settlement' as const,
+    message: {
+      orderEngine: ethers.getAddress(params.orderEngine),
+      leg: params.leg,
+      orderId: params.orderId,
+      counterparty: canonicalAddressString(params.counterparty),
+      token: canonicalAddressString(params.token),
+      baseAmount: params.baseAmount,
+      quoteAmount: params.quoteAmount,
+      price: params.price,
+    },
+  };
+}
+
+// Raw eth_signTypedData_v4 requires the EIP712Domain entry ethers rejects, and JSON transport
+// needs uint256 values as decimal strings — hence a second shape.
+export function buildAttestationTypedDataEnvelope(params: AttestationMessageParams, chainId: number) {
+  const { domain, types, primaryType, message } = buildAttestationTypedData(params, chainId);
+
+  return {
+    types: {
+      EIP712Domain: [
+        { name: 'name', type: 'string' },
+        { name: 'version', type: 'string' },
+        { name: 'chainId', type: 'uint256' },
+      ],
+      ...types,
+    },
+    primaryType,
+    domain,
+    message: {
+      ...message,
+      baseAmount: message.baseAmount.toString(),
+      quoteAmount: message.quoteAmount.toString(),
+      price: message.price.toString(),
+    },
+  };
+}
+
+export function eip712AttestationDigest(params: AttestationMessageParams, chainId: number): string {
+  const { domain, types, message } = buildAttestationTypedData(params, chainId);
+  return ethers.TypedDataEncoder.hash(domain, types, message);
+}
+
+// Proof = raw 65-byte r||s||v; recovered address == settlement-from covers sigBound and sigValid.
+// High-S is rejected explicitly: ethers ≥6.15 THROWS on non-canonical s instead of returning false.
+export function verifyPayerSignatureEip712(
+  proof: string,
+  params: AttestationMessageParams,
+  chainId: number,
+  orderFrom: string,
+): boolean {
+  let sig: Uint8Array;
+  try {
+    sig = ethers.getBytes(proof);
+  } catch {
+    return false;
+  }
+
+  if (sig.length !== 65) {
+    return false;
+  }
+
+  const s = BigInt(ethers.hexlify(sig.slice(32, 64)));
+  if (s === 0n || s > SECP256K1_HALF_N) {
+    return false;
+  }
+
+  try {
+    const recovered = ethers.recoverAddress(eip712AttestationDigest(params, chainId), ethers.hexlify(sig));
+    return recovered.toLowerCase() === orderFrom.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Settlement-proof method registry
 //
 // `method` is the opaque uint8 stored on-chain in SettlementProof; the contract never interprets it.
@@ -209,13 +326,15 @@ export async function verifyEd25519(publicKey: string, signature: string, preima
 // (oracle) share one source of truth. Adding a method is an SDK change, not a contract change.
 //
 // Method 1 (payer-signature) is allowed on every network; method 2 (mint payer-signature) only on the
-// EVM + Solana networks that host consumer-token mints.
+// EVM + Solana networks that host consumer-token mints; method 3 (EIP-712 payer-signature) only on
+// the EVM networks with a pinned chainId, transfers only.
 // ---------------------------------------------------------------------------
 
 export enum SettlementMethod {
   None = 0,
   PayerSignature = 1,
   MintPayerSignature = 2,
+  PayerSignatureEip712 = 3,
 }
 
 // A consumer-token mint has a zero token-level `from`, so the oracle resolves the settlement sender
@@ -230,6 +349,10 @@ export function allowedSettlementMethods(networkId: string): SettlementMethod[] 
 
   if (MINT_SETTLEMENT_NETWORKS.has(networkId)) {
     methods.push(SettlementMethod.MintPayerSignature);
+  }
+
+  if (networkId in EIP712_SETTLEMENT_CHAIN_IDS) {
+    methods.push(SettlementMethod.PayerSignatureEip712);
   }
 
   return methods;
@@ -301,6 +424,18 @@ export async function verifySettlementProof(
       const sigValid = await network.verifyAttestation(publicKey, signature, preimage);
 
       return { present: true, methodAllowed: true, valid: sigBound && sigValid, sigBound, sigValid };
+    }
+
+    case SettlementMethod.PayerSignatureEip712: {
+      // Transfers only: on a mint `orderFrom` is resolved from the relayer-controlled tx envelope,
+      // which would let the envelope sender rebind the settlement — the same class G1 blocks for method 2.
+      if (input.mintContext?.logFromWasZero) {
+        return { present: true, methodAllowed: true, valid: false };
+      }
+
+      const verified = verifyPayerSignatureEip712(input.proof, preimageParams, EIP712_SETTLEMENT_CHAIN_IDS[networkId], orderFrom);
+
+      return { present: true, methodAllowed: true, valid: verified, sigBound: verified, sigValid: verified };
     }
 
     default:

@@ -7,11 +7,15 @@ import {
   AttestationMessageParams,
   attestationKeyMatchesAddress,
   buildAttestationPreimage,
+  buildAttestationTypedData,
+  buildAttestationTypedDataEnvelope,
   decodePayerSignatureProof,
+  eip712AttestationDigest,
   encodePayerSignatureProof,
   isAttestationCapable,
   secp256k1Digest,
   SettlementMethod,
+  verifyPayerSignatureEip712,
   verifySecp256k1,
   verifyEd25519,
   verifySettlementProof,
@@ -293,6 +297,107 @@ test('verifySettlementProof: MintPayerSignature verifies only for a mint (G1) an
   // G4: method 2 is not allowed on a non-mint-hosting network — never reaches verification
   const wrongNet = await verifySettlementProof(net, 'BTC', { method: SettlementMethod.MintPayerSignature, proof, mintContext: { logFromWasZero: true } }, params, wallet.address);
   expect(wrongNet).toMatchObject({ present: true, methodAllowed: false, valid: false });
+});
+
+const CHAIN_ID = 1;
+
+// Frozen canonical vector for method 3 — same contract as the V1 vector above: signer and verifier
+// must reproduce this digest exactly; a break means the typed-data encoding changed.
+test('eip712: canonical vector digest is pinned', () => {
+  expect(eip712AttestationDigest(params, CHAIN_ID)).toBe('0xa5e2e8b2cb694b6c5a23dcfcd7847dc73d8fb82c0ed0b597898305250bcf2388');
+});
+
+test('eip712: EVM-style counterparty casing does NOT change the digest', () => {
+  const lower = '0xabcdefabcdefabcdefabcdefabcdefabcdefabcd';
+  const a = eip712AttestationDigest({ ...params, counterparty: lower }, CHAIN_ID);
+  const b = eip712AttestationDigest({ ...params, counterparty: ethers.getAddress(lower) }, CHAIN_ID);
+  expect(a).toBe(b);
+});
+
+test('eip712: signTypedData round-trip, wrong signer/field/chainId rejected', async () => {
+  const wallet = new ethers.Wallet('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
+  const { domain, types, message } = buildAttestationTypedData(params, CHAIN_ID);
+  const sig = await wallet.signTypedData(domain, types, message);
+
+  expect(verifyPayerSignatureEip712(sig, params, CHAIN_ID, wallet.address)).toBe(true);
+  expect(verifyPayerSignatureEip712(sig, params, CHAIN_ID, wallet.address.toLowerCase())).toBe(true);
+
+  expect(verifyPayerSignatureEip712(sig, params, CHAIN_ID, params.counterparty)).toBe(false);
+  expect(verifyPayerSignatureEip712(sig, { ...params, leg: 'solver' }, CHAIN_ID, wallet.address)).toBe(false);
+  expect(verifyPayerSignatureEip712(sig, { ...params, baseAmount: 1000001n }, CHAIN_ID, wallet.address)).toBe(false);
+  expect(verifyPayerSignatureEip712(sig, params, 42161, wallet.address)).toBe(false);
+});
+
+test('eip712: high-S and malformed proofs are rejected without throwing', async () => {
+  const wallet = new ethers.Wallet('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
+  const { domain, types, message } = buildAttestationTypedData(params, CHAIN_ID);
+  const sig = ethers.Signature.from(await wallet.signTypedData(domain, types, message));
+
+  const highS = '0x' + (SECP_N - BigInt(sig.s)).toString(16).padStart(64, '0');
+  const flippedV = sig.v === 27 ? '0x1c' : '0x1b';
+  const malleated = ethers.concat([sig.r, highS, flippedV]);
+  expect(verifyPayerSignatureEip712(malleated, params, CHAIN_ID, wallet.address)).toBe(false);
+
+  expect(verifyPayerSignatureEip712(ethers.concat([sig.r, sig.s]), params, CHAIN_ID, wallet.address)).toBe(false); // 64 bytes
+  expect(verifyPayerSignatureEip712('0x1234', params, CHAIN_ID, wallet.address)).toBe(false);
+  expect(verifyPayerSignatureEip712('not-hex', params, CHAIN_ID, wallet.address)).toBe(false);
+  expect(verifyPayerSignatureEip712('0x' + '00'.repeat(65), params, CHAIN_ID, wallet.address)).toBe(false); // s = 0
+  expect(verifyPayerSignatureEip712('0x' + 'ff'.repeat(65), params, CHAIN_ID, wallet.address)).toBe(false);
+});
+
+// The \x19\x01 framing vs the ABI-encoded V1 preimage makes the digests structurally disjoint —
+// one signature must never verify under both methods.
+test('eip712: no cross-method replay with V1 in either direction', async () => {
+  const wallet = new ethers.Wallet('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
+  const preimage = buildAttestationPreimage(params);
+
+  const v1Sig = wallet.signingKey.sign(secp256k1Digest(preimage)).serialized;
+  expect(verifyPayerSignatureEip712(v1Sig, params, CHAIN_ID, wallet.address)).toBe(false);
+
+  const { domain, types, message } = buildAttestationTypedData(params, CHAIN_ID);
+  const eip712Sig = await wallet.signTypedData(domain, types, message);
+  expect(verifySecp256k1(wallet.signingKey.publicKey, eip712Sig, preimage)).toBe(false);
+});
+
+test('eip712: envelope is JSON-safe and hashes to the same digest', () => {
+  const env = buildAttestationTypedDataEnvelope(params, CHAIN_ID);
+
+  expect(() => JSON.stringify(env)).not.toThrow();
+  expect(env.types.EIP712Domain).toBeDefined();
+  expect(env.primaryType).toBe('Settlement');
+  expect(typeof env.message.baseAmount).toBe('string');
+
+  const { EIP712Domain, ...types } = env.types;
+  expect(ethers.TypedDataEncoder.hash(env.domain, types, env.message)).toBe(eip712AttestationDigest(params, CHAIN_ID));
+});
+
+test('verifySettlementProof: PayerSignatureEip712 verifies transfers on EVM, fails closed on mints and non-EVM', async () => {
+  const wallet = new ethers.Wallet('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
+  const net = new EvmNetwork(RPC, 1);
+  const { domain, types, message } = buildAttestationTypedData(params, CHAIN_ID);
+  const proof = await wallet.signTypedData(domain, types, message);
+
+  const ok = await verifySettlementProof(net, 'ETH', { method: SettlementMethod.PayerSignatureEip712, proof }, params, wallet.address);
+  expect(ok).toMatchObject({ present: true, methodAllowed: true, sigBound: true, sigValid: true, valid: true });
+
+  const okNotMint = await verifySettlementProof(net, 'ETH', { method: SettlementMethod.PayerSignatureEip712, proof, mintContext: { logFromWasZero: false } }, params, wallet.address);
+  expect(okNotMint.valid).toBe(true);
+
+  const wrongFrom = await verifySettlementProof(net, 'ETH', { method: SettlementMethod.PayerSignatureEip712, proof }, params, params.counterparty);
+  expect(wrongFrom.valid).toBe(false);
+
+  // transfers only — a mint's orderFrom comes from the relayer-controlled envelope
+  const mint = await verifySettlementProof(net, 'ETH', { method: SettlementMethod.PayerSignatureEip712, proof, mintContext: { logFromWasZero: true } }, params, wallet.address);
+  expect(mint).toMatchObject({ present: true, methodAllowed: true, valid: false });
+
+  // domain chainId is pinned per network: an ETH-domain proof cannot verify as an ARB settlement
+  const wrongChain = await verifySettlementProof(net, 'ARB', { method: SettlementMethod.PayerSignatureEip712, proof }, params, wallet.address);
+  expect(wrongChain.valid).toBe(false);
+
+  for (const networkId of ['BTC', 'SOL', 'TRX', 'CC']) {
+    const nonEvm = await verifySettlementProof(net, networkId, { method: SettlementMethod.PayerSignatureEip712, proof }, params, wallet.address);
+    expect(nonEvm, networkId).toMatchObject({ present: true, methodAllowed: false, valid: false });
+  }
 });
 
 test('ed25519 chains derive + verify (SOL/TON)', async () => {
