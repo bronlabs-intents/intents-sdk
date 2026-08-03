@@ -120,7 +120,7 @@ export async function attestationKeyMatchesAddress(
 }
 
 // ---------------------------------------------------------------------------
-// secp256k1 (ECDSA) — EVM / Tron / XRP / Cosmos / BTC
+// secp256k1 (ECDSA) — EVM / Tron / XRP / Cosmos / BTC / HBAR
 // ---------------------------------------------------------------------------
 
 /**

@@ -2,7 +2,7 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
-import { log } from '../utils.js';
+import { log, sleep } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 
 interface HbarTransfer {
@@ -15,11 +15,10 @@ interface HbarTokenTransfer extends HbarTransfer {
 }
 
 interface HbarTransaction {
-  consensus_timestamp?: string;
+  consensus_timestamp: string;
   result: string;
   nonce: number;
   scheduled: boolean;
-  node?: string | null;
   transfers?: HbarTransfer[];
   token_transfers?: HbarTokenTransfer[];
   staking_reward_transfers?: HbarTransfer[];
@@ -29,9 +28,20 @@ const ENTITY_ID = /^0\.0\.\d+$/;
 const EVM_ALIAS = /^0x[0-9a-fA-F]{40}$/;
 const SDK_TX_ID = /^(\d+\.\d+\.\d+)@(\d+)\.(\d{1,9})$/;
 const MIRROR_TX_ID = /^(\d+\.\d+\.\d+)-(\d+)-(\d{1,9})$/;
+const NATIVE_TX_HASH = /^0x[0-9a-fA-F]{96}$/;
+const BASE64_TX_HASH = /^[A-Za-z0-9+/_-]{64}$/;
+const ETHEREUM_TX_HASH = /^0x[0-9a-fA-F]{64}$/;
 
 // Fee collection, staking and node reward accounts are never a settlement counterparty.
 const NETWORK_ACCOUNTS = ['0.0.98', '0.0.800', '0.0.801', '0.0.802'];
+
+const RETRY_DELAYS = [300, 1000];
+
+class MirrorError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+  }
+}
 
 // Both textual forms of a transaction id carry the same integer nanosecond count — the SDK form
 // only prints it zero-padded, so an unpadded count is left-padded, never read as a fraction.
@@ -39,7 +49,33 @@ export function toMirrorTxId(txId: string): string | undefined {
   const id = txId.trim();
   const match = SDK_TX_ID.exec(id) ?? MIRROR_TX_ID.exec(id);
 
-  return match ? `${match[1]}-${match[2]}-${match[3].padStart(9, '0')}` : undefined;
+  if (match) {
+    return `${match[1]}-${match[2]}-${match[3].padStart(9, '0')}`;
+  }
+
+  // The mirror node serves the same record under its native SHA-384 hash, hex or base64 encoded.
+  return NATIVE_TX_HASH.test(id) || BASE64_TX_HASH.test(id) ? encodeURIComponent(id) : undefined;
+}
+
+const consensusSeconds = (tx: HbarTransaction): number => parseInt(tx.consensus_timestamp.split('.')[0], 10);
+
+const entryRank = (tx: HbarTransaction): number => tx.nonce === 0 ? (tx.scheduled ? 1 : 0) : 2;
+
+// int64 amounts arrive as JSON numbers, so anything past 2^53 is already rounded.
+function safeAmount(amount: number): number {
+  if (!Number.isSafeInteger(amount)) {
+    throw new Error(`HBAR transfer amount exceeds safe integer range: ${amount}`);
+  }
+
+  return amount;
+}
+
+// transfers[] is the net HBAR change per account, so a staking-reward payout triggered by this
+// transaction lands on top of the settlement — net it back out before reading the payment.
+function nettedTransfers(tx: HbarTransaction): HbarTransfer[] {
+  const rewards = new Map<string, number>((tx.staking_reward_transfers ?? []).map(r => [r.account, safeAmount(r.amount)]));
+
+  return (tx.transfers ?? []).map(t => ({ ...t, amount: safeAmount(t.amount) - (rewards.get(t.account) ?? 0) }));
 }
 
 export class HbarNetwork implements Network, AttestationCapable {
@@ -52,15 +88,15 @@ export class HbarNetwork implements Network, AttestationCapable {
   constructor(rpcUrl: string) {
     const [baseUrl, apiKey] = rpcUrl.split('@', 2);
 
-    this.rpcUrl = baseUrl.replace(/\/+$/, '');
+    this.rpcUrl = baseUrl;
 
     if (apiKey) {
       this.authHeaders = { 'x-api-key': apiKey };
     }
   }
 
-  // EVM alias of the key — Hedera settlement addresses are native `0.0.x` account ids, so sigBound
-  // goes through matchesAddress instead.
+  // The EVM alias is the only Hedera address form derivable from a key alone; a native `0.0.x` id
+  // is bound to its key through matchesAddress instead.
   addressFromPublicKey(publicKey: string): string {
     return ethers.computeAddress(publicKey).toLowerCase();
   }
@@ -93,7 +129,7 @@ export class HbarNetwork implements Network, AttestationCapable {
 
     // Long-zero aliases and rotated keys don't match the derived alias — fall back to the
     // account's registered key.
-    const account = await this.apiGet(`accounts/${address.toLowerCase()}?limit=1`);
+    const account = await this.apiGetWithRetry(`accounts/${address.toLowerCase()}?limit=1`);
 
     if (!account) {
       log.warn(`HBAR account ${address} does not exist`);
@@ -109,7 +145,7 @@ export class HbarNetwork implements Network, AttestationCapable {
   }
 
   async ping(): Promise<void> {
-    if (!await this.apiGet('blocks?limit=1')) {
+    if (!(await this.apiGet('blocks?limit=1'))?.blocks?.length) {
       throw new Error('HBAR mirror node returned no blocks');
     }
   }
@@ -145,10 +181,10 @@ export class HbarNetwork implements Network, AttestationCapable {
       return;
     }
 
-    const mirrorTxId = toMirrorTxId(txHash);
+    const mirrorTxId = toMirrorTxId(txHash) ?? await this.resolveEthereumHash(txHash);
 
     if (!mirrorTxId) {
-      log.warn(`Transaction ${txHash} is not a valid HBAR transaction id`);
+      log.warn(`Transaction ${txHash} is not a known HBAR transaction id or hash`);
       return;
     }
 
@@ -158,32 +194,25 @@ export class HbarNetwork implements Network, AttestationCapable {
       return;
     }
 
-    // The same id also covers duplicate submissions, child transactions (nonce > 0) and the
-    // scheduled variant; the payer's own top-level transaction is the one that settles.
-    const entries: HbarTransaction[] = (result.transactions ?? []).filter((t: HbarTransaction) => t.nonce === 0 && !t.scheduled);
-    const tx = entries.find(t => t.result === 'SUCCESS') ?? entries[0];
+    const entries: HbarTransaction[] = result.transactions ?? [];
 
-    if (!tx) {
+    // Duplicate submissions land as extra top-level entries; the payer's own one carries the
+    // network's verdict on the transaction and its consensus time.
+    const topLevel = entries.filter(t => t.nonce === 0 && !t.scheduled);
+    const primary = topLevel.find(t => t.result === 'SUCCESS') ?? topLevel[0];
+
+    if (!primary) {
       log.warn(`Transaction ${txHash} has no top-level entry`);
       return;
     }
 
     // Hedera finality is deterministic (aBFT): an entry that reached consensus is final.
-    const confirmed = !!tx.consensus_timestamp;
-    const timestamp = tx.consensus_timestamp ? parseInt(tx.consensus_timestamp.split('.')[0], 10) : 0;
+    const confirmed = true;
 
-    if (tx.result !== 'SUCCESS') {
-      log.warn(`Transaction ${txHash} failed: ${tx.result}`);
-      return { from: "", to: "", token: "", amount: 0n, confirmed, timestamp };
+    if (primary.result !== 'SUCCESS') {
+      log.warn(`Transaction ${txHash} failed: ${primary.result}`);
+      return { from: "", to: "", token: "", amount: 0n, confirmed, timestamp: consensusSeconds(primary) };
     }
-
-    // transfers[] is the net HBAR change per account, so a staking-reward payout triggered by this
-    // transaction lands on top of the settlement — net it back out before reading the payment.
-    const rewards = new Map<string, number>((tx.staking_reward_transfers ?? []).map(r => [r.account, r.amount]));
-
-    const transfers: HbarTransfer[] = tokenAddress === "0x0"
-      ? (tx.transfers ?? []).map(t => ({ ...t, amount: t.amount - (rewards.get(t.account) ?? 0) }))
-      : (tx.token_transfers ?? []).filter(t => t.token_id === tokenAddress);
 
     // A transfer TO an alias auto-creates the account, so a missing alias mapping is transient,
     // not a terminal mismatch.
@@ -194,48 +223,69 @@ export class HbarNetwork implements Network, AttestationCapable {
       return;
     }
 
-    const amount = this.creditedAmount(transfers, recipient);
+    // A scheduled transfer settles on the scheduled sibling of the payer's entry and a contract call
+    // records its token transfers on child entries, so the entry that credits is the one that pays.
+    const candidates = entries
+      .filter(t => t.result === 'SUCCESS')
+      .sort((a, b) => entryRank(a) - entryRank(b) || a.nonce - b.nonce);
 
-    if (amount === 0n) {
-      log.warn(`Transaction ${txHash} does not credit ${tokenAddress} to ${recipientAddress}`);
-      return { from: "", to: "", token: "", amount: 0n, confirmed, timestamp };
-    }
+    for (const entry of candidates) {
+      const transfers: HbarTransfer[] = tokenAddress === "0x0"
+        ? nettedTransfers(entry)
+        : (entry.token_transfers ?? []).filter(t => t.token_id === tokenAddress);
 
-    // A transaction also debits its payer for the network fee, so more than one debited account
-    // leaves the settlement sender ambiguous.
-    const sender = this.soleSender(
-      transfers,
-      tokenAddress === "0x0" ? [...NETWORK_ACCOUNTS, ...(tx.node ? [tx.node] : [])] : []
-    );
+      const amount = this.creditedAmount(transfers, recipient);
 
-    if (!sender) {
-      log.warn(`Transaction ${txHash} has no unambiguous sender of ${tokenAddress}; refusing to attribute one`);
-    }
-
-    let from = sender;
-
-    if (sender && senderAddress) {
-      // The oracle string-compares from/to against the order, which may carry either address form.
-      const expectedSender = await this.resolveAccountId(senderAddress);
-
-      if (!expectedSender) {
-        log.warn(`HBAR alias ${senderAddress} has no account on the mirror node yet`);
-        return;
+      if (amount === 0n) {
+        continue;
       }
 
-      if (expectedSender === sender) {
-        from = senderAddress;
+      // A transaction also debits its payer for the network fee, so more than one debited account
+      // leaves the settlement sender ambiguous.
+      const sender = this.soleSender(transfers, tokenAddress === "0x0" ? NETWORK_ACCOUNTS : []);
+
+      if (!sender) {
+        log.warn(`Transaction ${txHash} has no unambiguous sender of ${tokenAddress}; refusing to attribute one`);
       }
+
+      let from = sender;
+
+      if (sender && senderAddress) {
+        // The oracle string-compares from/to against the order, which may carry either address form.
+        const expectedSender = await this.resolveAccountId(senderAddress);
+
+        if (expectedSender === sender) {
+          from = senderAddress;
+        }
+      }
+
+      return {
+        from,
+        to: recipientAddress,
+        token: tokenAddress,
+        amount,
+        confirmed,
+        timestamp: consensusSeconds(entry)
+      };
     }
 
-    return {
-      from,
-      to: recipientAddress,
-      token: tokenAddress,
-      amount,
-      confirmed,
-      timestamp
-    };
+    log.warn(`Transaction ${txHash} does not credit ${tokenAddress} to ${recipientAddress}`);
+
+    return { from: "", to: "", token: "", amount: 0n, confirmed, timestamp: consensusSeconds(primary) };
+  }
+
+  // A transaction submitted through the JSON-RPC relay is only known to its payer by the Ethereum
+  // hash; the contract result maps it back to the Hedera transaction id.
+  private async resolveEthereumHash(txHash: string): Promise<string | undefined> {
+    const hash = txHash.trim().toLowerCase();
+
+    if (!ETHEREUM_TX_HASH.test(hash)) {
+      return undefined;
+    }
+
+    const contractResult = await this.apiGet(`contracts/results/${hash}`);
+
+    return typeof contractResult?.transaction_id === 'string' ? toMirrorTxId(contractResult.transaction_id) : undefined;
   }
 
   // Mirror transfers only carry native ids.
@@ -252,14 +302,7 @@ export class HbarNetwork implements Network, AttestationCapable {
   private creditedAmount(transfers: HbarTransfer[], recipientAddress: string): bigint {
     return transfers
       .filter(t => t.account === recipientAddress && t.amount > 0)
-      .reduce((sum, t) => {
-        // int64 amounts arrive as JSON numbers, so anything past 2^53 is already rounded.
-        if (!Number.isSafeInteger(t.amount)) {
-          throw new Error(`HBAR transfer amount exceeds safe integer range: ${t.amount}`);
-        }
-
-        return sum + BigInt(t.amount);
-      }, 0n);
+      .reduce((sum, t) => sum + BigInt(safeAmount(t.amount)), 0n);
   }
 
   private soleSender(transfers: HbarTransfer[], excluded: string[]): string {
@@ -272,6 +315,26 @@ export class HbarNetwork implements Network, AttestationCapable {
     throw new Error('HbarNetwork does not support transfers');
   }
 
+  // The oracle reads a throw from the sigBound check as an unbound key, so a rate-limited or
+  // briefly unavailable mirror node must not reach it as one.
+  private async apiGetWithRetry(path: string): Promise<any> {
+    for (const delay of RETRY_DELAYS) {
+      try {
+        return await this.apiGet(path);
+      } catch (e) {
+        if (e instanceof MirrorError && e.status !== 429 && e.status < 500) {
+          throw e;
+        }
+
+        log.warn(`HBAR mirror node request ${path} failed, retrying in ${delay}ms: ${e}`);
+
+        await sleep(delay);
+      }
+    }
+
+    return this.apiGet(path);
+  }
+
   private async apiGet(path: string): Promise<any> {
     const resp = await proxyFetch(`${this.rpcUrl}/api/v1/${path}`, { headers: this.authHeaders });
 
@@ -280,7 +343,7 @@ export class HbarNetwork implements Network, AttestationCapable {
     }
 
     if (!resp.ok) {
-      throw new Error(`HBAR mirror node error ${resp.status}: ${(await resp.text()).substring(0, 1024)}`);
+      throw new MirrorError(resp.status, `HBAR mirror node error ${resp.status}: ${(await resp.text()).substring(0, 1024)}`);
     }
 
     return await resp.json();
