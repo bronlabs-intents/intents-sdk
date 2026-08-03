@@ -8,6 +8,7 @@ import { BronCantonNetwork } from './bron-canton.js';
 import { BtcNetwork } from './btc.js';
 import { CosmosNetwork } from "./cosmos.js";
 import { XrpNetwork } from './xrp.js';
+import { HbarNetwork } from './hbar.js';
 
 export interface TransactionData {
   from: string;
@@ -57,6 +58,7 @@ const networkBuilders = {
   "testCC": (cf: NetworkConfig) => new BronCantonNetwork("testCC", cf.bronApiUrl, cf.bronApiKey, cf.daUtilitiesApiUrl),
   "testXRP": (cf: NetworkConfig) => new XrpNetwork(cf.rpcUrl, 1),
   "testGNK": (cf: NetworkConfig) => new CosmosNetwork(cf.rpcUrl, 'ngonka', 'gonka', 0, 1),
+  "testHBAR": (cf: NetworkConfig) => new HbarNetwork(cf.rpcUrl),
   
   "BTC": (cf: NetworkConfig) => new BtcNetwork(cf.rpcUrl, 2),
   "ETH": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 4),
@@ -72,6 +74,7 @@ const networkBuilders = {
   "CC": (cf: NetworkConfig) => new BronCantonNetwork("CC", cf.bronApiUrl, cf.bronApiKey, cf.daUtilitiesApiUrl),
   "GNK": (cf: NetworkConfig) => new CosmosNetwork(cf.rpcUrl, 'ngonka', 'gonka', 0, 1),
   "XRP": (cf: NetworkConfig) => new XrpNetwork(cf.rpcUrl, 1),
+  "HBAR": (cf: NetworkConfig) => new HbarNetwork(cf.rpcUrl),
 }
 
 export const initNetworks = (configs: { [key: string]: NetworkConfig }, filter?: (cfg: NetworkConfig) => boolean) =>
