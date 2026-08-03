@@ -26,6 +26,7 @@ interface HbarTransaction {
 }
 
 const ENTITY_ID = /^0\.0\.\d+$/;
+const EVM_ALIAS = /^0x[0-9a-fA-F]{40}$/;
 const SDK_TX_ID = /^(\d+\.\d+\.\d+)@(\d+)\.(\d{1,9})$/;
 const MIRROR_TX_ID = /^(\d+\.\d+\.\d+)-(\d+)-(\d{1,9})$/;
 
@@ -71,11 +72,6 @@ export class HbarNetwork implements Network, AttestationCapable {
   // An account id is not key-derivable, so the key that controls it is read from the mirror node.
   // It reads the CURRENT key: a rotation mid-quorum can split oracles, and pinning it needs an interface change.
   async matchesAddress(publicKey: string, address: string): Promise<boolean> {
-    if (!ENTITY_ID.test(address)) {
-      log.warn(`HBAR address ${address} is not a native account id`);
-      return false;
-    }
-
     let compressed: string;
 
     try {
@@ -84,7 +80,20 @@ export class HbarNetwork implements Network, AttestationCapable {
       return false;
     }
 
-    const account = await this.apiGet(`accounts/${address}?limit=1`);
+    // An account auto-created by a transfer to an alias stays hollow — its mirror key is null until
+    // it signs something — so the alias form binds offline first, against the key itself.
+    if (EVM_ALIAS.test(address)) {
+      if (this.addressFromPublicKey(publicKey) === address.toLowerCase()) {
+        return true;
+      }
+    } else if (!ENTITY_ID.test(address)) {
+      log.warn(`HBAR address ${address} is not a native account id or an EVM alias`);
+      return false;
+    }
+
+    // Long-zero aliases and rotated keys don't match the derived alias — fall back to the
+    // account's registered key.
+    const account = await this.apiGet(`accounts/${address.toLowerCase()}?limit=1`);
 
     if (!account) {
       log.warn(`HBAR account ${address} does not exist`);
@@ -129,7 +138,7 @@ export class HbarNetwork implements Network, AttestationCapable {
     tokenAddress: string,
     recipientAddress: string,
     tokenId?: bigint,
-    _senderAddress?: string
+    senderAddress?: string
   ): Promise<TransactionData | undefined> {
     if (tokenId !== undefined) {
       log.warn(`Don't support NFTs for HBAR network: ${txHash}`);
@@ -176,7 +185,16 @@ export class HbarNetwork implements Network, AttestationCapable {
       ? (tx.transfers ?? []).map(t => ({ ...t, amount: t.amount - (rewards.get(t.account) ?? 0) }))
       : (tx.token_transfers ?? []).filter(t => t.token_id === tokenAddress);
 
-    const amount = this.creditedAmount(transfers, recipientAddress);
+    // A transfer TO an alias auto-creates the account, so a missing alias mapping is transient,
+    // not a terminal mismatch.
+    const recipient = await this.resolveAccountId(recipientAddress);
+
+    if (!recipient) {
+      log.warn(`HBAR alias ${recipientAddress} has no account on the mirror node yet`);
+      return;
+    }
+
+    const amount = this.creditedAmount(transfers, recipient);
 
     if (amount === 0n) {
       log.warn(`Transaction ${txHash} does not credit ${tokenAddress} to ${recipientAddress}`);
@@ -185,13 +203,29 @@ export class HbarNetwork implements Network, AttestationCapable {
 
     // A transaction also debits its payer for the network fee, so more than one debited account
     // leaves the settlement sender ambiguous.
-    const from = this.soleSender(
+    const sender = this.soleSender(
       transfers,
       tokenAddress === "0x0" ? [...NETWORK_ACCOUNTS, ...(tx.node ? [tx.node] : [])] : []
     );
 
-    if (!from) {
+    if (!sender) {
       log.warn(`Transaction ${txHash} has no unambiguous sender of ${tokenAddress}; refusing to attribute one`);
+    }
+
+    let from = sender;
+
+    if (sender && senderAddress) {
+      // The oracle string-compares from/to against the order, which may carry either address form.
+      const expectedSender = await this.resolveAccountId(senderAddress);
+
+      if (!expectedSender) {
+        log.warn(`HBAR alias ${senderAddress} has no account on the mirror node yet`);
+        return;
+      }
+
+      if (expectedSender === sender) {
+        from = senderAddress;
+      }
     }
 
     return {
@@ -202,6 +236,17 @@ export class HbarNetwork implements Network, AttestationCapable {
       confirmed,
       timestamp
     };
+  }
+
+  // Mirror transfers only carry native ids.
+  private async resolveAccountId(address: string): Promise<string | undefined> {
+    if (!EVM_ALIAS.test(address)) {
+      return address;
+    }
+
+    const account = await this.apiGet(`accounts/${address.toLowerCase()}?limit=1`);
+
+    return typeof account?.account === 'string' && ENTITY_ID.test(account.account) ? account.account : undefined;
   }
 
   private creditedAmount(transfers: HbarTransfer[], recipientAddress: string): bigint {

@@ -21,6 +21,9 @@ const TOKEN = '0.0.5449';
 const TX_ID = `${PAYER}-1785741956-431173749`;
 const SDK_TX_ID = `${PAYER}@1785741956.431173749`;
 
+const PAYER_ALIAS = new ethers.Wallet(ethers.id('hbar-payer')).address;
+const RECIPIENT_ALIAS = new ethers.Wallet(ethers.id('hbar-recipient')).address;
+
 const params: AttestationMessageParams = {
   orderEngine: '0x1111111111111111111111111111111111111111',
   leg: 'user',
@@ -89,6 +92,11 @@ function mockedNetwork(responses: Record<string, any>): HbarNetwork {
 }
 
 const withEntries = (...transactions: any[]) => ({ [`transactions/${TX_ID}`]: { transactions } });
+
+const withAlias = (alias: string, account: string) => ({ [`accounts/${alias.toLowerCase()}?limit=1`]: { account } });
+
+const accountLookups = (network: HbarNetwork) =>
+  (network as any).apiGet.mock.calls.filter(([path]: [string]) => path.startsWith('accounts/'));
 
 describe('toMirrorTxId', () => {
   it('converts the SDK form to the mirror path form', () => {
@@ -333,6 +341,76 @@ describe('getTxData HTS token', () => {
   });
 });
 
+describe('getTxData with EVM alias addresses', () => {
+  it('matches the credit by the account id the recipient alias resolves to', async () => {
+    const network = mockedNetwork({ ...withEntries(nativeEntry), ...withAlias(RECIPIENT_ALIAS, RECIPIENT) });
+
+    expect(await network.getTxData(TX_ID, '0x0', RECIPIENT_ALIAS)).toEqual({
+      from: PAYER,
+      to: RECIPIENT_ALIAS,
+      token: '0x0',
+      amount: 2588995597n,
+      confirmed: true,
+      timestamp: 1785741962
+    });
+  });
+
+  it('matches an HTS credit by the resolved account id', async () => {
+    const network = mockedNetwork({ ...withEntries(tokenEntry), ...withAlias(RECIPIENT_ALIAS, RECIPIENT) });
+    const tx = await network.getTxData(TX_ID, TOKEN, RECIPIENT_ALIAS);
+
+    expect(tx?.amount).toBe(21397915n);
+    expect(tx?.to).toBe(RECIPIENT_ALIAS);
+  });
+
+  it('returns nothing while the mirror node does not know the recipient alias', async () => {
+    expect(await mockedNetwork(withEntries(nativeEntry)).getTxData(TX_ID, '0x0', RECIPIENT_ALIAS)).toBeUndefined();
+  });
+
+  it('zeroes a transaction that credits another account than the alias', async () => {
+    const network = mockedNetwork({ ...withEntries(nativeEntry), ...withAlias(RECIPIENT_ALIAS, OTHER) });
+
+    expect(await network.getTxData(TX_ID, '0x0', RECIPIENT_ALIAS)).toEqual({
+      from: '',
+      to: '',
+      token: '',
+      amount: 0n,
+      confirmed: true,
+      timestamp: 1785741962
+    });
+  });
+
+  it('echoes the alias form of the declared payer back as the sender', async () => {
+    const network = mockedNetwork({ ...withEntries(nativeEntry), ...withAlias(PAYER_ALIAS, PAYER) });
+
+    expect((await network.getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER_ALIAS))?.from).toBe(PAYER_ALIAS);
+  });
+
+  it('keeps the native sender when the declared payer resolves to another account', async () => {
+    const other = mockedNetwork({ ...withEntries(nativeEntry), ...withAlias(PAYER_ALIAS, OTHER) });
+    expect((await other.getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER_ALIAS))?.from).toBe(PAYER);
+  });
+
+  it('retries when the declared payer alias has no account yet', async () => {
+    const unknown = mockedNetwork(withEntries(nativeEntry));
+    expect(await unknown.getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER_ALIAS)).toBeUndefined();
+  });
+
+  it('still refuses to attribute an ambiguous sender to the declared payer', async () => {
+    const entry = { ...nativeEntry, transfers: [...nativeEntry.transfers, { account: OTHER, amount: -100 }] };
+    const network = mockedNetwork({ ...withEntries(entry), ...withAlias(PAYER_ALIAS, PAYER) });
+
+    expect((await network.getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER_ALIAS))?.from).toBe('');
+  });
+
+  it('does not ask the mirror node about addresses that are already native ids', async () => {
+    const network = mockedNetwork(withEntries(nativeEntry));
+
+    expect((await network.getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER))?.from).toBe(PAYER);
+    expect(accountLookups(network)).toHaveLength(0);
+  });
+});
+
 describe('getDecimals', () => {
   it('returns tinybar decimals for native HBAR', async () => {
     expect(await mockedNetwork({}).getDecimals('0x0')).toBe(8);
@@ -391,11 +469,31 @@ describe('attestation', () => {
     }
   });
 
-  it('rejects a non-native address', async () => {
+  it('rejects an address that is neither a native id nor an EVM alias', async () => {
     const network = mockedNetwork(account({ _type: 'ECDSA_SECP256K1', key: compressed }));
 
-    expect(await attestationKeyMatchesAddress(network, publicKey, wallet.address)).toBe(false);
     expect(await attestationKeyMatchesAddress(network, publicKey, `0.1.${PAYER.split('.')[2]}`)).toBe(false);
+    expect(await attestationKeyMatchesAddress(network, publicKey, wallet.address.slice(0, -2))).toBe(false);
+  });
+
+  it('binds a key to its own EVM alias without asking the mirror node', async () => {
+    const network = mockedNetwork({});
+
+    expect(await attestationKeyMatchesAddress(network, publicKey, wallet.address)).toBe(true);
+    expect(await attestationKeyMatchesAddress(network, publicKey, wallet.address.toLowerCase())).toBe(true);
+    expect(accountLookups(network)).toHaveLength(0);
+  });
+
+  it('rejects the EVM alias of another key', async () => {
+    expect(await attestationKeyMatchesAddress(mockedNetwork({}), publicKey, PAYER_ALIAS)).toBe(false);
+  });
+
+  it('falls back to the mirror key for an alias the key does not derive', async () => {
+    const network = mockedNetwork({
+      [`accounts/${PAYER_ALIAS.toLowerCase()}?limit=1`]: { account: PAYER, key: { _type: 'ECDSA_SECP256K1', key: compressed } }
+    });
+
+    expect(await attestationKeyMatchesAddress(network, publicKey, PAYER_ALIAS)).toBe(true);
   });
 
   it('rejects an account that does not exist', async () => {
