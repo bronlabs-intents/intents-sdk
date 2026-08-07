@@ -10,6 +10,8 @@ import { CosmosNetwork } from "./cosmos.js";
 import { XrpNetwork } from './xrp.js';
 import { HbarNetwork } from './hbar.js';
 
+export { BronCantonNetwork, BtcNetwork, CosmosNetwork, EvmNetwork, HbarNetwork, SolNetwork, TonNetwork, TrxNetwork, XrpNetwork };
+
 export interface TransactionData {
   from: string;
   to: string;
