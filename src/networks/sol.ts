@@ -8,6 +8,9 @@ import { AttestationCapable, SignatureScheme, verifyEd25519 } from '../attestati
 import { log, memoize } from "../utils.js";
 import { proxyFetch } from '../proxy.js';
 
+const sumTokenAmounts = (balances: any[]): bigint =>
+  balances.reduce((total: bigint, balance: any) => total + BigInt(balance.uiTokenAmount.amount), 0n);
+
 export class SolNetwork implements Network, AttestationCapable {
   private readonly rpcUrl: string;
   private readonly confirmations: number;
@@ -183,7 +186,7 @@ export class SolNetwork implements Network, AttestationCapable {
     const postTokenBalanceOfReceiver = postTokenBalances.find((balance: any) => balance.owner === recipientAddress)
     const preTokenBalanceOfReceiver = preTokenBalances.find((balance: any) => balance.owner === recipientAddress)
 
-    if (!senderAddress || !postTokenBalanceOfReceiver) {
+    if (!postTokenBalanceOfReceiver) {
       return {
         from: "",
         to: "",
@@ -199,6 +202,35 @@ export class SolNetwork implements Network, AttestationCapable {
       preBalance = BigInt(preTokenBalanceOfReceiver.uiTokenAmount.amount)
     }
 
+    const credited = BigInt(postTokenBalanceOfReceiver.uiTokenAmount.amount) - preBalance;
+
+    if (!senderAddress) {
+      // A mint credits without debiting, so this mint's balances net positive across the tx while a
+      // transfer nets to zero — that is what separates it from a sender we simply could not attribute.
+      const minted = sumTokenAmounts(postTokenBalances) - sumTokenAmounts(preTokenBalances) > 0n;
+
+      if (!minted) {
+        return {
+          from: "",
+          to: "",
+          token: "",
+          amount: 0n,
+          confirmed,
+          timestamp
+        };
+      }
+
+      return {
+        from: "",
+        to: postTokenBalanceOfReceiver.owner,
+        token: postTokenBalanceOfReceiver.mint,
+        amount: credited,
+        confirmed,
+        timestamp,
+        envelopeFrom: accountKeys[0]
+      };
+    }
+
     // `from` is the token-account owner whose balance dropped (computed above), required to be a
     // signer of the tx — not accountKeys[0]. A non-signing funder means we can't bind the payment to
     // the attester, so reject (empty from → senderValid fails).
@@ -208,7 +240,7 @@ export class SolNetwork implements Network, AttestationCapable {
       from: senderIsSigner ? senderAddress : "",
       to: postTokenBalanceOfReceiver.owner,
       token: postTokenBalanceOfReceiver.mint,
-      amount: BigInt(postTokenBalanceOfReceiver.uiTokenAmount.amount) - preBalance,
+      amount: credited,
       confirmed,
       timestamp
     };

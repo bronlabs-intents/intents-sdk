@@ -338,10 +338,11 @@ export enum SettlementMethod {
 }
 
 // A consumer-token mint has a zero token-level `from`, so the oracle resolves the settlement sender
-// from the tx envelope — sound only on the EVM chains that host such mints (Solana not yet supported).
+// from the tx envelope. Sound only where the envelope sender provably signed the whole transaction:
+// the EVM chains that host such mints, and Solana, whose fee payer is always a required signer.
 const MINT_SETTLEMENT_NETWORKS = new Set<string>([
-  'ETH', 'OP', 'BSC', 'BASE', 'POL', 'ARB', 'hyperEVM',
-  'testETH', 'testOP',
+  'ETH', 'OP', 'BSC', 'BASE', 'POL', 'ARB', 'hyperEVM', 'SOL',
+  'testETH', 'testOP', 'testSOL',
 ]);
 
 export function allowedSettlementMethods(networkId: string): SettlementMethod[] {
