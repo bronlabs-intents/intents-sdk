@@ -11,7 +11,20 @@ let nonProxyHosts: string[] = [];
 
 export function configureProxy(url?: string, noProxyHosts: string[] = []): void {
   proxyAgent = url
-    ? new HttpsProxyAgent(normalizeProxyUrl(url), { rejectUnauthorized: false })
+    ? new HttpsProxyAgent(normalizeProxyUrl(url), {
+        rejectUnauthorized: false,
+        // Reuse CONNECT tunnels between requests. Without this every request opens a new
+        // TCP + CONNECT + TLS handshake through the proxy, which at solver call rates
+        // (~3 rps to the same few upstream IPs) piles up TIME_WAIT/conntrack entries on
+        // the proxy host until connects start timing out.
+        keepAlive: true,
+        keepAliveMsecs: 1000,
+        maxSockets: 32,
+        maxFreeSockets: 8,
+        // Destroy idle sockets before the proxy/upstream silently drops them, so we
+        // don't fire requests into stale tunnels (ECONNRESET on first reuse).
+        timeout: 30_000,
+      })
     : undefined;
   nonProxyHosts = [...ALWAYS_NO_PROXY, ...noProxyHosts];
 
