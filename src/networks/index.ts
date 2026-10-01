@@ -9,8 +9,9 @@ import { BtcNetwork } from './btc.js';
 import { CosmosNetwork } from "./cosmos.js";
 import { XrpNetwork } from './xrp.js';
 import { HbarNetwork } from './hbar.js';
+import { TaoNetwork } from './tao.js';
 
-export { BronCantonNetwork, BtcNetwork, CosmosNetwork, EvmNetwork, HbarNetwork, SolNetwork, TonNetwork, TrxNetwork, XrpNetwork };
+export { BronCantonNetwork, BtcNetwork, CosmosNetwork, EvmNetwork, HbarNetwork, SolNetwork, TaoNetwork, TonNetwork, TrxNetwork, XrpNetwork };
 
 export interface TransactionData {
   from: string;
@@ -38,7 +39,7 @@ export interface Network {
   // on mint-hosting EVM networks they MUST also populate envelopeFrom so method-2 settlements verify.
   // senderAddress is the expected payer: UTXO networks use it to attribute `from` on multi-address
   // inputs (returned as-is only when it provably co-signed the whole tx), account networks ignore it.
-  getTxData(txHash: string, tokenAddress: string, recipientAddress: string, tokenId?: bigint, senderAddress?: string): Promise<TransactionData | undefined>;
+  getTxData(txHash: string, tokenAddress: string, recipientAddress: string, tokenId?: bigint, senderAddress?: string, notBefore?: number): Promise<TransactionData | undefined>;
 
   /**
    * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.
@@ -77,6 +78,8 @@ const networkBuilders = {
   "GNK": (cf: NetworkConfig) => new CosmosNetwork(cf.rpcUrl, 'ngonka', 'gonka', 0, 1),
   "XRP": (cf: NetworkConfig) => new XrpNetwork(cf.rpcUrl, 1),
   "HBAR": (cf: NetworkConfig) => new HbarNetwork(cf.rpcUrl),
+  "MON": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 10),
+  "TAO": (cf: NetworkConfig) => new TaoNetwork(cf.rpcUrl),
 }
 
 export const initNetworks = (configs: { [key: string]: NetworkConfig }, filter?: (cfg: NetworkConfig) => boolean) =>
