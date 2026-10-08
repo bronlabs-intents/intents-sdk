@@ -2,7 +2,7 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
-import { log, sleep } from '../utils.js';
+import { addDelta, log, provableContribution, sleep } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 
 interface HbarTransfer {
@@ -16,6 +16,8 @@ interface HbarTokenTransfer extends HbarTransfer {
 
 interface HbarTransaction {
   consensus_timestamp: string;
+  transaction_id?: string;
+  charged_tx_fee?: number;
   result: string;
   nonce: number;
   scheduled: boolean;
@@ -249,13 +251,21 @@ export class HbarNetwork implements Network, AttestationCapable {
       }
 
       let from = sender;
+      let paid = amount;
 
-      if (sender && senderAddress) {
+      if (senderAddress) {
         // The oracle string-compares from/to against the order, which may carry either address form.
         const expectedSender = await this.resolveAccountId(senderAddress);
 
-        if (expectedSender === sender) {
+        if (expectedSender && expectedSender === sender) {
           from = senderAddress;
+        } else if (expectedSender) {
+          const contribution = this.contribution(entry, transfers, tokenAddress === "0x0", expectedSender, recipient);
+
+          if (contribution) {
+            from = senderAddress;
+            paid = contribution;
+          }
         }
       }
 
@@ -263,7 +273,7 @@ export class HbarNetwork implements Network, AttestationCapable {
         from,
         to: recipientAddress,
         token: tokenAddress,
-        amount,
+        amount: paid,
         confirmed,
         timestamp: consensusSeconds(entry)
       };
@@ -303,6 +313,24 @@ export class HbarNetwork implements Network, AttestationCapable {
     return transfers
       .filter(t => t.account === recipientAddress && t.amount > 0)
       .reduce((sum, t) => sum + BigInt(safeAmount(t.amount)), 0n);
+  }
+
+  private contribution(entry: HbarTransaction, transfers: HbarTransfer[], native: boolean, sender: string, recipient: string): bigint {
+    const deltas = new Map<string, bigint>();
+
+    for (const t of transfers) {
+      if (!native || !NETWORK_ACCOUNTS.includes(t.account)) {
+        addDelta(deltas, t.account, BigInt(safeAmount(t.amount)));
+      }
+    }
+
+    const payer = MIRROR_TX_ID.exec(entry.transaction_id ?? '')?.[1];
+
+    if (native && payer && entry.charged_tx_fee) {
+      addDelta(deltas, payer, BigInt(safeAmount(entry.charged_tx_fee)));
+    }
+
+    return provableContribution(deltas, new Set([sender]), recipient);
   }
 
   private soleSender(transfers: HbarTransfer[], excluded: string[]): string {

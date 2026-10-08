@@ -91,6 +91,165 @@ describe('SolNetwork.getTxData', () => {
   });
 });
 
+describe('SolNetwork.getTxData routed native payments', () => {
+  const OWNER = 'Owner111111111111111111111111111111111111';
+  const WRAPPED = 'Wrapped11111111111111111111111111111111111';
+  const OTHER = 'Other111111111111111111111111111111111111';
+  const SINK = 'Sink1111111111111111111111111111111111111';
+  const AMOUNT = 2000000000;
+  const FEE = 15000;
+
+  const wrapped = (accountIndex: number, owner: string | undefined, amount: number) =>
+    ({ accountIndex, mint: MINT, ...(owner ? { owner } : {}), uiTokenAmount: { amount: String(amount) } });
+
+  function unwrapThroughFeePayer(owner: string | null = OWNER) {
+    mockTransaction(
+      {
+        fee: FEE,
+        preBalances: [1_000_000_000, 5_000_000, 0, 3_000_000_000],
+        postBalances: [1_000_000_000 - FEE, 5_000_000, AMOUNT, 3_000_000_000 - AMOUNT],
+        preTokenBalances: [wrapped(3, owner ?? undefined, 3_000_000_000)],
+        postTokenBalances: [wrapped(3, owner ?? undefined, 3_000_000_000 - AMOUNT)],
+      },
+      [FEE_PAYER, OWNER, RECEIVER, WRAPPED],
+      2,
+    );
+  }
+
+  beforeEach(() => { vi.mocked(proxyFetch).mockReset(); });
+
+  it('attributes a wrapped-SOL account unwrapped through the fee payer', async () => {
+    unwrapThroughFeePayer();
+
+    const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', '0x0', RECEIVER, undefined, WRAPPED);
+
+    expect(tx).toMatchObject({ from: WRAPPED, to: RECEIVER, amount: BigInt(AMOUNT) });
+  });
+
+  it('attributes the owner of the unwrapped wrapped-SOL account', async () => {
+    unwrapThroughFeePayer();
+
+    const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', '0x0', RECEIVER, undefined, OWNER);
+
+    expect(tx).toMatchObject({ from: OWNER, amount: BigInt(AMOUNT) });
+  });
+
+  it('does not treat a wrapped-SOL account with no recorded owner as the payer', async () => {
+    unwrapThroughFeePayer(null);
+
+    const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', '0x0', RECEIVER, undefined, OWNER);
+
+    expect(tx?.from).toBe('');
+  });
+
+  it('does not adopt a wrapped-SOL account whose owner changed within the transaction', async () => {
+    mockTransaction(
+      {
+        fee: FEE,
+        preBalances: [1_000_000_000, 5_000_000, 0, 3_000_000_000],
+        postBalances: [1_000_000_000 - FEE, 5_000_000, AMOUNT, 3_000_000_000 - AMOUNT],
+        preTokenBalances: [wrapped(3, OTHER, 3_000_000_000)],
+        postTokenBalances: [wrapped(3, OWNER, 3_000_000_000 - AMOUNT)],
+      },
+      [FEE_PAYER, OWNER, RECEIVER, WRAPPED],
+      2,
+    );
+
+    const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', '0x0', RECEIVER, undefined, OWNER);
+
+    expect(tx?.from).toBe('');
+  });
+
+  it('resolves accounts loaded from an address lookup table', async () => {
+    mockTransaction(
+      {
+        fee: FEE,
+        loadedAddresses: { writable: [RECEIVER, WRAPPED], readonly: [] },
+        preBalances: [1_000_000_000, 5_000_000, 0, 3_000_000_000],
+        postBalances: [1_000_000_000 - FEE, 5_000_000, AMOUNT, 3_000_000_000 - AMOUNT],
+        preTokenBalances: [wrapped(3, OWNER, 3_000_000_000)],
+        postTokenBalances: [wrapped(3, OWNER, 3_000_000_000 - AMOUNT)],
+      },
+      [FEE_PAYER, OWNER],
+      2,
+    );
+
+    const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', '0x0', RECEIVER, undefined, WRAPPED);
+
+    expect(tx).toMatchObject({ from: WRAPPED, to: RECEIVER, amount: BigInt(AMOUNT) });
+  });
+
+  it('refuses a third party funding the recipient while the payer pays elsewhere', async () => {
+    mockTransaction(
+      {
+        fee: FEE,
+        preBalances: [1_000_000_000, 0, AMOUNT, AMOUNT, 0],
+        postBalances: [1_000_000_000 - FEE, AMOUNT, 0, 0, AMOUNT],
+      },
+      [FEE_PAYER, RECEIVER, OTHER, WRAPPED, SINK],
+      1,
+    );
+
+    const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', '0x0', RECEIVER, undefined, WRAPPED);
+
+    expect(tx?.from).toBe('');
+  });
+});
+
+describe('SolNetwork.getTxData routed SPL payments', () => {
+  const ROUTER = 'Router11111111111111111111111111111111111';
+  const OTHER = 'Other111111111111111111111111111111111111';
+
+  const indexed = (accountIndex: number, owner: string, amount: string) => ({ ...balance(owner, amount), accountIndex });
+
+  beforeEach(() => { vi.mocked(proxyFetch).mockReset(); });
+
+  it('attributes a payer whose delegate signed the transfer', async () => {
+    mockTransaction(
+      {
+        preTokenBalances: [indexed(2, SENDER, '1000'), indexed(3, RECEIVER, '0')],
+        postTokenBalances: [indexed(2, SENDER, '400'), indexed(3, RECEIVER, '600')],
+      },
+      [FEE_PAYER, 'Delegate1111111111111111111111111111111111', 'SenderAta111111111111111111111111111111111', 'ReceiverAta11111111111111111111111111111111'],
+      2,
+    );
+
+    const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', MINT, RECEIVER, undefined, SENDER);
+
+    expect(tx).toMatchObject({ from: SENDER, to: RECEIVER, amount: 600n });
+  });
+
+  it('nets a router account that is opened and closed within the transaction', async () => {
+    mockTransaction(
+      {
+        preTokenBalances: [indexed(2, SENDER, '1000'), indexed(3, ROUTER, '0')],
+        postTokenBalances: [indexed(2, SENDER, '400'), indexed(4, RECEIVER, '600')],
+      },
+      [FEE_PAYER, 'Delegate1111111111111111111111111111111111', 'SenderAta111111111111111111111111111111111', 'RouterAta11111111111111111111111111111111', 'ReceiverAta11111111111111111111111111111111'],
+      2,
+    );
+
+    const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', MINT, RECEIVER, undefined, SENDER);
+
+    expect(tx).toMatchObject({ from: SENDER, amount: 600n });
+  });
+
+  it('refuses a third party funding the recipient while the payer pays elsewhere', async () => {
+    mockTransaction(
+      {
+        preTokenBalances: [indexed(2, OTHER, '600'), indexed(3, SENDER, '600'), indexed(4, RECEIVER, '0'), indexed(5, ROUTER, '0')],
+        postTokenBalances: [indexed(2, OTHER, '0'), indexed(3, SENDER, '0'), indexed(4, RECEIVER, '600'), indexed(5, ROUTER, '600')],
+      },
+      [FEE_PAYER, 'Delegate1111111111111111111111111111111111', 'OtherAta111111111111111111111111111111111', 'SenderAta111111111111111111111111111111111', 'ReceiverAta11111111111111111111111111111111', 'RouterAta11111111111111111111111111111111'],
+      2,
+    );
+
+    const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', MINT, RECEIVER, undefined, SENDER);
+
+    expect(tx?.from).toBe('');
+  });
+});
+
 describe('allowedSettlementMethods', () => {
   it('allows mint settlements on Solana', () => {
     expect(allowedSettlementMethods('SOL')).toContain(SettlementMethod.MintPayerSignature);

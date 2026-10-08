@@ -47,6 +47,35 @@ export function withTimeout<T>(promise: Promise<T>, ms: number, message?: string
   ]);
 }
 
+export const TRACE_TIMEOUT_MS = 8000;
+
+export function addDelta(deltas: Map<string, bigint>, address: string, amount: bigint): void {
+  deltas.set(address, (deltas.get(address) ?? 0n) + amount);
+}
+
+// Every non-payer debit (a mint pseudo-account included) must reach otherDebit: leaving one out lets
+// a third-party payout to the recipient count as the payer's own payment.
+export function provableContribution(deltas: Map<string, bigint>, payers: Set<string>, recipient: string): bigint {
+  let credit = 0n;
+  let payerDebit = 0n;
+  let otherDebit = 0n;
+
+  for (const [address, delta] of deltas) {
+    if (address === recipient) {
+      credit = delta > 0n ? delta : 0n;
+    } else if (delta < 0n && payers.has(address)) {
+      payerDebit -= delta;
+    } else if (delta < 0n) {
+      otherDebit -= delta;
+    }
+  }
+
+  const covered = credit - otherDebit;
+  const contribution = covered < payerDebit ? covered : payerDebit;
+
+  return contribution > 0n ? contribution : 0n;
+}
+
 export async function expRetry<T>(fn: () => Promise<T>, maxRetries: number = 3, retryIf: (e: Error) => boolean = () => true): Promise<T> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {

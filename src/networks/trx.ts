@@ -4,10 +4,19 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from "./index.js";
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
-import { log, memoize } from "../utils.js";
+import { addDelta, log, memoize, provableContribution } from "../utils.js";
 import { proxyFetch } from '../proxy.js';
 
 const TRC20_TRANSFER_TOPIC = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+
+const MAX_INTERNAL_TRANSACTIONS = 2000;
+const VALUE_TRANSFER_NOTES = new Set(["call", "create", "suicide"]);
+
+interface SmartContractCall {
+  owner_address: string;
+  contract_address: string;
+  call_value?: number;
+}
 
 const addrBody = (s: string): string => (s || "").replace(/^0x/, "").toLowerCase().slice(-40);
 
@@ -76,7 +85,9 @@ export class TrxNetwork implements Network, AttestationCapable {
   async getTxData(
     txHash: string,
     tokenAddress: string,
-    recipientAddress: string
+    recipientAddress: string,
+    _tokenId?: bigint,
+    senderAddress?: string
   ): Promise<TransactionData | undefined> {
     const currentBlock = await this.request(`/wallet/getblockbylatestnum`, {
       method: "POST",
@@ -131,6 +142,14 @@ export class TrxNetwork implements Network, AttestationCapable {
       log.info(`Confirmations ${txHash}: ${currentBlock - blockNumber}`);
 
       const contract = response.raw_data?.contract?.[0];
+
+      if (contract?.type === "TriggerSmartContract" && senderAddress) {
+        const contribution = this.nativeContribution(txHash, contract.parameter.value, info.internal_transactions ?? [], senderAddress, recipientAddress);
+
+        if (contribution) {
+          return { from: senderAddress, to: recipientAddress, token: tokenAddress, amount: contribution, confirmed, timestamp };
+        }
+      }
 
       if (contract?.type !== "TransferContract") {
         log.warn(`Transaction ${txHash} is not a native TRX transfer: ${contract?.type}`);
@@ -213,7 +232,7 @@ export class TrxNetwork implements Network, AttestationCapable {
 
     const amountHex = (transferLog.data || "").replace(/^0x/, "");
 
-    return {
+    const legacy = {
       from: fromHex("0x" + addrBody(transferLog.topics[1])),
       to: fromHex("0x" + addrBody(transferLog.topics[2])),
       token: fromHex("0x" + tokenBody),
@@ -221,6 +240,60 @@ export class TrxNetwork implements Network, AttestationCapable {
       confirmed,
       timestamp
     };
+
+    if (!senderAddress || legacy.from === senderAddress) {
+      return legacy;
+    }
+
+    const deltas = new Map<string, bigint>();
+
+    for (const l of response.log || []) {
+      if (addrBody(l.address) !== tokenBody || (l.topics?.[0] || "").replace(/^0x/, "").toLowerCase() !== TRC20_TRANSFER_TOPIC || l.topics?.length !== 3) {
+        continue;
+      }
+
+      const data = (l.data || "").replace(/^0x/, "");
+      const amount = data ? BigInt("0x" + data) : 0n;
+
+      addDelta(deltas, addrBody(l.topics[1]), -amount);
+      addDelta(deltas, addrBody(l.topics[2]), amount);
+    }
+
+    const contribution = provableContribution(deltas, new Set([addrBody(toHex(senderAddress))]), recipientBody);
+
+    return contribution ? { ...legacy, from: senderAddress, amount: contribution } : legacy;
+  }
+
+  private nativeContribution(txHash: string, call: SmartContractCall, internalTransactions: any[], senderAddress: string, recipientAddress: string): bigint {
+    if (internalTransactions.length > MAX_INTERNAL_TRANSACTIONS) {
+      log.warn(`Transaction ${txHash} has ${internalTransactions.length} internal transactions, over the attribution cap of ${MAX_INTERNAL_TRANSACTIONS}`);
+      return 0n;
+    }
+
+    const deltas = new Map<string, bigint>();
+    const callValue = BigInt(call.call_value ?? 0);
+
+    if (callValue > 0n) {
+      addDelta(deltas, addrBody(call.owner_address), -callValue);
+      addDelta(deltas, addrBody(call.contract_address), callValue);
+    }
+
+    for (const internal of internalTransactions) {
+      if (internal.rejected || !VALUE_TRANSFER_NOTES.has(Buffer.from(internal.note ?? "", "hex").toString())) {
+        continue;
+      }
+
+      for (const { callValue: value, tokenId } of internal.callValueInfo ?? []) {
+        if (tokenId !== undefined || !value) {
+          continue;
+        }
+
+        addDelta(deltas, addrBody(internal.caller_address), -BigInt(value));
+        addDelta(deltas, addrBody(internal.transferTo_address), BigInt(value));
+      }
+    }
+
+    return provableContribution(deltas, new Set([addrBody(toHex(senderAddress))]), addrBody(toHex(recipientAddress)));
   }
 
   /**

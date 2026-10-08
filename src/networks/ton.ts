@@ -4,8 +4,11 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from "./index.js";
 import { AttestationCapable, SignatureScheme, verifyEd25519 } from '../attestation.js';
-import { log, memoize } from "../utils.js";
+import { addDelta, log, memoize, provableContribution, TRACE_TIMEOUT_MS, withTimeout } from "../utils.js";
 import { proxyFetch } from '../proxy.js';
+
+const MAX_TRACE_TRANSACTIONS = 200;
+const INCOMPLETE_TRACE_RETRY_SECONDS = 600;
 
 export class TonNetwork implements Network, AttestationCapable {
   private readonly client: TonClient;
@@ -71,7 +74,9 @@ export class TonNetwork implements Network, AttestationCapable {
   async getTxData(
     txHash: string,
     tokenAddress: string,
-    recipientAddress: string
+    recipientAddress: string,
+    _tokenId?: bigint,
+    senderAddress?: string
   ): Promise<TransactionData | undefined> {
     const masterchainInfo = await this.request("/v3/masterchainInfo");
     const currentSeqno = masterchainInfo.last?.seqno ?? 0;
@@ -110,7 +115,19 @@ export class TonNetwork implements Network, AttestationCapable {
     log.info(`Confirmations ${txHash}: ${currentSeqno - txSeqno}`);
 
     if (tokenAddress === "0x0") {
-      return this.parseNativeTransfer(tx, recipientAddress, confirmed, timestamp);
+      const legacy = this.parseNativeTransfer(tx, recipientAddress, confirmed, timestamp);
+
+      if (!senderAddress || (legacy && this.addressesMatch(legacy.from, senderAddress) && this.addressesMatch(legacy.to, recipientAddress))) {
+        return legacy;
+      }
+
+      const contribution = await this.tracedNativeContribution(txHash, tx.hash, timestamp, senderAddress, recipientAddress);
+
+      if (contribution === undefined) {
+        return;
+      }
+
+      return contribution ? { from: senderAddress, to: recipientAddress, token: tokenAddress, amount: contribution, confirmed, timestamp } : legacy;
     }
 
     return this.parseJettonTransfer(txHash, tokenAddress, recipientAddress, confirmed, timestamp);
@@ -247,6 +264,62 @@ export class TonNetwork implements Network, AttestationCapable {
     }
 
     return;
+  }
+
+  private async tracedNativeContribution(txHash: string, rootHash: string, timestamp: number, senderAddress: string, recipientAddress: string): Promise<bigint | undefined> {
+    const traceResp = await withTimeout(
+      this.request(`/v3/traces?tx_hash=${encodeURIComponent(txHash)}&limit=1`),
+      TRACE_TIMEOUT_MS,
+      `Trace of ${txHash} timed out after ${TRACE_TIMEOUT_MS}ms`
+    );
+
+    const trace = traceResp.traces?.[0];
+
+    if (!trace?.transactions || trace.trace?.tx_hash !== rootHash) {
+      log.warn(`Transaction ${txHash} is not the root of an indexed trace; refusing to attribute the trace to it`);
+      return 0n;
+    }
+
+    if (trace.is_incomplete) {
+      if (Date.now() / 1000 - timestamp < INCOMPLETE_TRACE_RETRY_SECONDS) {
+        log.info(`Trace of ${txHash} is not complete yet`);
+        return;
+      }
+
+      log.warn(`Trace of ${txHash} is still incomplete after ${INCOMPLETE_TRACE_RETRY_SECONDS}s`);
+      return 0n;
+    }
+
+    const transactions: any[] = Object.values(trace.transactions);
+
+    if (transactions.length > MAX_TRACE_TRANSACTIONS) {
+      log.warn(`Transaction ${txHash} trace has ${transactions.length} transactions, over the attribution cap of ${MAX_TRACE_TRANSACTIONS}`);
+      return 0n;
+    }
+
+    const deltas = new Map<string, bigint>();
+
+    for (const tx of transactions) {
+      if (tx.in_msg?.source && tx.in_msg.value) {
+        addDelta(deltas, this.rawAddress(tx.account), BigInt(tx.in_msg.value));
+      }
+
+      for (const msg of tx.out_msgs ?? []) {
+        if (msg.destination && msg.value) {
+          addDelta(deltas, this.rawAddress(tx.account), -BigInt(msg.value));
+        }
+      }
+    }
+
+    return provableContribution(deltas, new Set([this.rawAddress(senderAddress)]), this.rawAddress(recipientAddress));
+  }
+
+  private rawAddress(address: string): string {
+    try {
+      return Address.parse(address).toRawString();
+    } catch {
+      return address.toLowerCase();
+    }
   }
 
   private async parseJettonTransfer(

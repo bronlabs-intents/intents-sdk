@@ -510,11 +510,63 @@ describe('getTxData with EVM alias addresses', () => {
     expect((await unknown.getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER_ALIAS))?.from).toBe(PAYER);
   });
 
-  it('still refuses to attribute an ambiguous sender to the declared payer', async () => {
+  it('credits the declared payer only with what another debit cannot have covered', async () => {
     const entry = { ...nativeEntry, transfers: [...nativeEntry.transfers, { account: OTHER, amount: -100 }] };
     const network = mockedNetwork({ ...withEntries(entry), ...withAlias(PAYER_ALIAS, PAYER) });
 
-    expect((await network.getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER_ALIAS))?.from).toBe('');
+    expect(await network.getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER_ALIAS)).toMatchObject({ from: PAYER_ALIAS, amount: 2588995497n });
+  });
+
+  it('refuses the declared payer when a third party funded the recipient', async () => {
+    const entry = {
+      ...nativeEntry,
+      transfers: [
+        { account: RECIPIENT, amount: 1000 },
+        { account: OTHER, amount: -1000 },
+        { account: PAYER, amount: -1000 },
+        { account: '0.0.4400004', amount: 1000 }
+      ]
+    };
+
+    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER);
+
+    expect(tx?.from).toBe('');
+  });
+
+  it('does not count a staking reward payout against the declared payer', async () => {
+    const entry = {
+      ...nativeEntry,
+      transfers: [
+        { account: RECIPIENT, amount: 1000000 },
+        { account: PAYER, amount: -1000000 + 500 },
+        { account: OTHER, amount: -100 },
+        { account: '0.0.4400004', amount: 100 },
+        { account: '0.0.800', amount: -500 }
+      ],
+      staking_reward_transfers: [{ account: PAYER, amount: 500 }]
+    };
+
+    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER);
+
+    expect(tx).toMatchObject({ from: PAYER, amount: 1000000n - 100n });
+  });
+
+  it('attributes the declared payer when a separate account paid the network fee', async () => {
+    const entry = {
+      ...nativeEntry,
+      transaction_id: `${OTHER}-1785741956-431173749`,
+      charged_tx_fee: 144403,
+      transfers: [
+        { account: '0.0.802', amount: 144403 },
+        { account: RECIPIENT, amount: 1000000 },
+        { account: PAYER, amount: -1000000 },
+        { account: OTHER, amount: -144403 }
+      ]
+    };
+
+    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER);
+
+    expect(tx).toMatchObject({ from: PAYER, amount: 1000000n });
   });
 
   it('does not ask the mirror node about addresses that are already native ids', async () => {

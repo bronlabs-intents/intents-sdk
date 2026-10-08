@@ -1,6 +1,6 @@
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
-import { log } from '../utils.js';
+import { addDelta, log, provableContribution } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { GasPrice, SigningStargateClient } from '@cosmjs/stargate';
@@ -16,13 +16,15 @@ export class CosmosNetwork implements Network, AttestationCapable {
   readonly signatureScheme = SignatureScheme.Secp256k1;
   private readonly bech32: string;
   private readonly gasPrice: number;
+  private readonly feeCollector: string;
 
-  constructor(rpcUrl: string, nativeDenom: string, bech32: string, gasPrice: number, confirmations: number = 1) {
+  constructor(rpcUrl: string, nativeDenom: string, bech32Prefix: string, gasPrice: number, confirmations: number = 1) {
     this.rpcUrl = rpcUrl;
     this.confirmations = confirmations;
     this.gasPrice = gasPrice;
     this.nativeDenom = nativeDenom;
-    this.bech32 = bech32
+    this.bech32 = bech32Prefix
+    this.feeCollector = bech32.encode(bech32Prefix, bech32.toWords(ethers.getBytes(ethers.sha256(ethers.toUtf8Bytes('fee_collector'))).slice(0, 20)));
   }
 
   // bech32(prefix, ripemd160(sha256(compressed secp256k1 pubkey))) — standard Cosmos account address.
@@ -64,7 +66,7 @@ export class CosmosNetwork implements Network, AttestationCapable {
     return 0;
   }
 
-  async getTxData(txHash: string, tokenAddress: string, recipientAddress: string): Promise<TransactionData | undefined> {
+  async getTxData(txHash: string, tokenAddress: string, recipientAddress: string, _tokenId?: bigint, senderAddress?: string): Promise<TransactionData | undefined> {
     const result = await this.rpcGet('tx', { hash: `0x${txHash}`, prove: 'false' });
 
     if (!result || !result.tx_result) {
@@ -100,7 +102,7 @@ export class CosmosNetwork implements Network, AttestationCapable {
         this.parseDenomAmount(t.amount || '', denom) !== null
       );
 
-    if (matches.length !== 1) {
+    if (matches.length !== 1 && !senderAddress) {
       log.warn(`Transaction ${txHash} has ${matches.length} transfers of ${denom} to ${recipientAddress} (expected exactly 1)`);
 
       return {
@@ -112,8 +114,6 @@ export class CosmosNetwork implements Network, AttestationCapable {
         timestamp: 0
       }
     }
-
-    const transfer = matches[0];
 
     const blockResult = await this.rpcGet('block');
     const currentBlock = parseInt(blockResult.block.header.height);
@@ -127,14 +127,65 @@ export class CosmosNetwork implements Network, AttestationCapable {
     const blockTime = txBlockResult?.block?.header?.time;
     const timestamp = blockTime ? Math.floor(Date.parse(blockTime) / 1000) : 0;
 
-    return {
-      from: transfer.sender || '',
-      to: transfer.recipient || '',
-      token: tokenAddress,
-      amount: this.parseDenomAmount(transfer.amount || '', denom)!,
-      confirmed,
-      timestamp
+    const legacy = matches.length === 1
+      ? {
+        from: matches[0].sender || '',
+        to: matches[0].recipient || '',
+        token: tokenAddress,
+        amount: this.parseDenomAmount(matches[0].amount || '', denom)!,
+        confirmed,
+        timestamp
+      }
+      : { from: "", to: "", token: "", amount: 0n, confirmed, timestamp };
+
+    if (!senderAddress || legacy.from.toLowerCase() === senderAddress.toLowerCase()) {
+      return legacy;
     }
+
+    const contribution = this.contribution(result.tx_result.events || [], denom, senderAddress, recipientAddress);
+
+    if (!contribution && matches.length !== 1) {
+      log.warn(`Transaction ${txHash} has ${matches.length} transfers of ${denom} to ${recipientAddress} and no provable payment from ${senderAddress}`);
+    }
+
+    return contribution
+      ? { from: senderAddress, to: recipientAddress, token: tokenAddress, amount: contribution, confirmed, timestamp }
+      : legacy;
+  }
+
+  private contribution(events: any[], denom: string, senderAddress: string, recipientAddress: string): bigint {
+    const deltas = new Map<string, bigint>();
+
+    const sides: Record<string, [string, bigint]> = { coin_spent: ['spender', -1n], coin_received: ['receiver', 1n] };
+
+    for (const event of events) {
+      if (!sides[event.type]) {
+        continue;
+      }
+
+      const [addressKey, sign] = sides[event.type];
+
+      let address: string | undefined;
+
+      for (const { key, value } of this.decodeAttributes(event.attributes || [])) {
+        if (key === addressKey) {
+          address = value.toLowerCase();
+        } else if (key === 'amount' && address) {
+          addDelta(deltas, address, sign * (this.parseDenomAmount(value, denom) ?? 0n));
+        }
+      }
+    }
+
+    for (const fee of events.filter((e: any) => e.type === 'transfer').flatMap((e: any) => this.parseTransferTriples(e.attributes))) {
+      if (fee.recipient?.toLowerCase() === this.feeCollector && fee.sender) {
+        const amount = this.parseDenomAmount(fee.amount || '', denom) ?? 0n;
+
+        addDelta(deltas, fee.sender.toLowerCase(), amount);
+        addDelta(deltas, this.feeCollector, -amount);
+      }
+    }
+
+    return provableContribution(deltas, new Set([senderAddress.toLowerCase()]), recipientAddress.toLowerCase());
   }
 
   /**

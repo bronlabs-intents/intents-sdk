@@ -3,7 +3,7 @@ import { ethers } from 'ethers';
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
 import { decodeErc6909TransferAmount } from '../token.js';
-import { log, memoize } from '../utils.js';
+import { addDelta, log, memoize, provableContribution, TRACE_TIMEOUT_MS, withTimeout } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 
 const ERC20_TRANSFER_TOPIC = ethers.id('Transfer(address,address,uint256)');
@@ -11,6 +11,20 @@ const ERC6909_TRANSFER_TOPIC = ethers.id('Transfer(address,address,address,uint2
 const ERC6909_DECIMALS_SELECTOR = '0x3f47e662';
 const ERC165_SUPPORTS_INTERFACE_SELECTOR = '0x01ffc9a7';
 const ERC6909_INTERFACE_ID = '0x0f632fb3';
+const VALUE_FRAME_TYPES = new Set(['CALL', 'CREATE', 'CREATE2', 'SELFDESTRUCT']);
+const MAX_TRACE_FRAMES = 2000;
+const MAX_RECEIPT_LOGS = 500;
+
+interface CallFrame {
+  type: string;
+  from: string;
+  to?: string;
+  value?: string;
+  error?: string;
+  calls?: CallFrame[];
+}
+
+const sameAddress = (a: string | undefined, b: string): boolean => !!a && a.toLowerCase() === b.toLowerCase();
 
 interface EthTransactionReceipt {
   status: string;
@@ -128,7 +142,7 @@ export class EvmNetwork implements Network, AttestationCapable {
     return result?.timestamp ? parseInt(result.timestamp, 16) : 0;
   }
 
-  async getTxData(txHash: string, tokenAddress: string, recipientAddress: string, tokenId?: bigint): Promise<TransactionData | undefined> {
+  async getTxData(txHash: string, tokenAddress: string, recipientAddress: string, tokenId?: bigint, senderAddress?: string): Promise<TransactionData | undefined> {
     const currentBlock = await this.provider.getBlockNumber();
 
     const { result: receiptResult } = await proxyFetch(this.rpcUrl, {
@@ -183,7 +197,7 @@ export class EvmNetwork implements Network, AttestationCapable {
 
       const { from, to, value } = result;
 
-      return {
+      const legacy = {
         from,
         to,
         token: tokenAddress,
@@ -192,6 +206,14 @@ export class EvmNetwork implements Network, AttestationCapable {
         timestamp,
         envelopeFrom: receipt.from
       };
+
+      if (!senderAddress || (sameAddress(from, senderAddress) && sameAddress(to, recipientAddress))) {
+        return legacy;
+      }
+
+      const contribution = await this.tracedNativeContribution(txHash, senderAddress, recipientAddress);
+
+      return contribution ? { ...legacy, from: senderAddress, to: recipientAddress, amount: contribution } : legacy;
     }
 
     // ERC6909 multi-token — match the 4-topic Transfer(caller, sender, receiver, id, amount) of the
@@ -224,7 +246,7 @@ export class EvmNetwork implements Network, AttestationCapable {
         };
       }
 
-      return {
+      const legacy = {
         from: '0x' + erc6909Log.topics[1].slice(26),
         to: '0x' + erc6909Log.topics[2].slice(26),
         token: erc6909Log.address,
@@ -234,6 +256,21 @@ export class EvmNetwork implements Network, AttestationCapable {
         timestamp,
         envelopeFrom: receipt.from
       };
+
+      if (!senderAddress || sameAddress(legacy.from, senderAddress)) {
+        return legacy;
+      }
+
+      const transferLogs = receipt.logs.filter(l =>
+        sameAddress(l.address, tokenAddress) &&
+        sameAddress(l.topics[0], ERC6909_TRANSFER_TOPIC) &&
+        l.topics.length === 4 &&
+        sameAddress(l.topics[3], idHex)
+      );
+
+      const contribution = this.tokenContribution(txHash, transferLogs, decodeErc6909TransferAmount, senderAddress, recipientAddress);
+
+      return contribution ? { ...legacy, from: senderAddress, amount: contribution } : legacy;
     }
 
     // ERC20 token — trust only a Transfer emitted by the token contract itself, to the expected
@@ -259,7 +296,7 @@ export class EvmNetwork implements Network, AttestationCapable {
       };
     }
 
-    return {
+    const legacy = {
       from: '0x' + transferLog.topics[1].slice(26),
       to: '0x' + transferLog.topics[2].slice(26),
       token: transferLog.address,
@@ -268,6 +305,88 @@ export class EvmNetwork implements Network, AttestationCapable {
       timestamp,
       envelopeFrom: receipt.from
     };
+
+    if (!senderAddress || sameAddress(legacy.from, senderAddress)) {
+      return legacy;
+    }
+
+    const transferLogs = receipt.logs.filter(l =>
+      sameAddress(l.address, tokenAddress) &&
+      sameAddress(l.topics[0], ERC20_TRANSFER_TOPIC) &&
+      l.topics.length === 3
+    );
+
+    const contribution = this.tokenContribution(txHash, transferLogs, data => BigInt(data), senderAddress, recipientAddress);
+
+    return contribution ? { ...legacy, from: senderAddress, amount: contribution } : legacy;
+  }
+
+  private tokenContribution(txHash: string, transferLogs: EthTransactionReceipt['logs'], decodeAmount: (data: string) => bigint, senderAddress: string, recipientAddress: string): bigint {
+    if (transferLogs.length > MAX_RECEIPT_LOGS) {
+      log.warn(`Transaction ${txHash} has ${transferLogs.length} transfer logs, over the attribution cap of ${MAX_RECEIPT_LOGS}`);
+      return 0n;
+    }
+
+    const deltas = new Map<string, bigint>();
+
+    for (const l of transferLogs) {
+      const amount = decodeAmount(l.data);
+
+      addDelta(deltas, ('0x' + l.topics[1].slice(26)).toLowerCase(), -amount);
+      addDelta(deltas, ('0x' + l.topics[2].slice(26)).toLowerCase(), amount);
+    }
+
+    return provableContribution(deltas, new Set([senderAddress.toLowerCase()]), recipientAddress.toLowerCase());
+  }
+
+  private async tracedNativeContribution(txHash: string, senderAddress: string, recipientAddress: string): Promise<bigint> {
+    const response = await withTimeout(
+      proxyFetch(this.rpcUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          id: 1,
+          jsonrpc: "2.0",
+          method: "debug_traceTransaction",
+          params: [txHash, { tracer: "callTracer" }]
+        })
+      }).then((res) => res.json()) as Promise<{ result?: CallFrame; error?: { code: number; message: string } }>,
+      TRACE_TIMEOUT_MS,
+      `Trace of ${txHash} timed out after ${TRACE_TIMEOUT_MS}ms`
+    );
+
+    if (response.error || !response.result) {
+      log.warn(`Transaction ${txHash} trace unavailable: ${JSON.stringify(response.error ?? null)}`);
+      return 0n;
+    }
+
+    const deltas = new Map<string, bigint>();
+    let frames = 0;
+
+    const walk = (frame: CallFrame): boolean => {
+      if (++frames > MAX_TRACE_FRAMES) {
+        return false;
+      }
+
+      if (frame.error) {
+        return true;
+      }
+
+      const value = frame.value ? BigInt(frame.value) : 0n;
+
+      if (value > 0n && frame.to && VALUE_FRAME_TYPES.has(frame.type)) {
+        addDelta(deltas, frame.from.toLowerCase(), -value);
+        addDelta(deltas, frame.to.toLowerCase(), value);
+      }
+
+      return (frame.calls ?? []).every(walk);
+    };
+
+    if (!walk(response.result)) {
+      log.warn(`Transaction ${txHash} trace has over ${MAX_TRACE_FRAMES} frames, over the attribution cap`);
+      return 0n;
+    }
+
+    return provableContribution(deltas, new Set([senderAddress.toLowerCase()]), recipientAddress.toLowerCase());
   }
 
   /**
