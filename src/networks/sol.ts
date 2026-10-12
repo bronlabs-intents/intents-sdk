@@ -80,7 +80,7 @@ export class SolNetwork implements Network, AttestationCapable {
       })
     }).then((res) => res.json()).then((res) => res.result.context.slot);
 
-    const { result } = await proxyFetch(this.rpcUrl, {
+    const { result, error } = await proxyFetch(this.rpcUrl, {
       method: 'POST',
       body: JSON.stringify({
         id: 1,
@@ -88,11 +88,15 @@ export class SolNetwork implements Network, AttestationCapable {
         method: "getTransaction",
         params: [txHash, {
           "commitment": "confirmed",
-          "maxSupportedTransactionVersion": 0,
+          "maxSupportedTransactionVersion": 1,
           "encoding": "json"
         }]
       })
     }).then((res) => res.json());
+
+    if (error) {
+      throw new Error(`getTransaction ${txHash} failed: ${error.code} ${error.message}`);
+    }
 
     if (!result) return;
 
