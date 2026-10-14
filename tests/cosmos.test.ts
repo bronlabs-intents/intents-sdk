@@ -74,6 +74,26 @@ describe('CosmosNetwork.getTxData', () => {
 
     const tx = await mockedNetwork(events).getTxData('ab', '0x0', RECIPIENT, undefined, PAYER);
 
-    expect(tx?.from).toBe(OTHER);
+    expect(tx).toMatchObject({ from: '', amount: 0n });
+  });
+
+  it('attributes the payer forwarding coins it received in the same transaction', async () => {
+    const events = [...move(OTHER, PAYER, `700${DENOM}`), ...move(PAYER, RECIPIENT, `700${DENOM}`)];
+
+    const tx = await mockedNetwork(events).getTxData('ab', '0x0', RECIPIENT, undefined, PAYER);
+
+    expect(tx).toMatchObject({ from: PAYER, amount: 700n });
+  });
+
+  it('refuses newly minted coins reaching the recipient while the payer pays elsewhere', async () => {
+    const events = [
+      event('coinbase', [['minter', CONTRACT], ['amount', `700${DENOM}`]]),
+      event('coin_received', [['receiver', RECIPIENT], ['amount', `700${DENOM}`]]),
+      ...move(PAYER, CONTRACT, `700${DENOM}`)
+    ];
+
+    const tx = await mockedNetwork(events).getTxData('ab', '0x0', RECIPIENT, undefined, PAYER);
+
+    expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 });

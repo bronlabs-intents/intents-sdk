@@ -4,11 +4,10 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from "./index.js";
 import { AttestationCapable, SignatureScheme, verifyEd25519 } from '../attestation.js';
-import { addDelta, log, memoize, provableContribution, TRACE_TIMEOUT_MS, withTimeout } from "../utils.js";
+import { log, memoize, paymentFlow, settlement, TRACE_RETRY_SECONDS, traceWithinRetryWindow, Transfer } from "../utils.js";
 import { proxyFetch } from '../proxy.js';
 
 const MAX_TRACE_TRANSACTIONS = 200;
-const INCOMPLETE_TRACE_RETRY_SECONDS = 600;
 
 export class TonNetwork implements Network, AttestationCapable {
   private readonly client: TonClient;
@@ -75,8 +74,8 @@ export class TonNetwork implements Network, AttestationCapable {
     txHash: string,
     tokenAddress: string,
     recipientAddress: string,
-    _tokenId?: bigint,
-    senderAddress?: string
+    _tokenId: bigint | undefined,
+    senderAddress: string
   ): Promise<TransactionData | undefined> {
     const masterchainInfo = await this.request("/v3/masterchainInfo");
     const currentSeqno = masterchainInfo.last?.seqno ?? 0;
@@ -115,19 +114,9 @@ export class TonNetwork implements Network, AttestationCapable {
     log.info(`Confirmations ${txHash}: ${currentSeqno - txSeqno}`);
 
     if (tokenAddress === "0x0") {
-      const legacy = this.parseNativeTransfer(tx, recipientAddress, confirmed, timestamp);
+      const paid = await this.tracedNativeFlow(txHash, tx.hash, timestamp, senderAddress, recipientAddress);
 
-      if (!senderAddress || (legacy && this.addressesMatch(legacy.from, senderAddress) && this.addressesMatch(legacy.to, recipientAddress))) {
-        return legacy;
-      }
-
-      const contribution = await this.tracedNativeContribution(txHash, tx.hash, timestamp, senderAddress, recipientAddress);
-
-      if (contribution === undefined) {
-        return;
-      }
-
-      return contribution ? { from: senderAddress, to: recipientAddress, token: tokenAddress, amount: contribution, confirmed, timestamp } : legacy;
+      return paid === undefined ? undefined : settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, timestamp);
     }
 
     return this.parseJettonTransfer(txHash, tokenAddress, recipientAddress, confirmed, timestamp);
@@ -223,57 +212,15 @@ export class TonNetwork implements Network, AttestationCapable {
     throw new Error(`Invalid private key length: ${secretKeyBytes.length}`);
   }
 
-  private parseNativeTransfer(
-    tx: any,
-    recipientAddress: string,
-    confirmed: boolean,
-    timestamp: number
-  ): TransactionData | undefined {
-    const outMsgs = tx.out_msgs || [];
+  private async tracedNativeFlow(txHash: string, rootHash: string, timestamp: number, senderAddress: string, recipientAddress: string): Promise<bigint | undefined> {
+    const traceResp = await traceWithinRetryWindow(this.request(`/v3/traces?tx_hash=${encodeURIComponent(txHash)}&limit=1`), txHash, timestamp);
 
-    const txAccount = this.normalizeAddress(tx.account);
+    const trace = traceResp?.traces?.[0];
 
-    for (const msg of outMsgs) {
-      if (msg.destination) {
-        const destAddress = this.normalizeAddress(msg.destination);
-
-        if (this.addressesMatch(destAddress, recipientAddress)) {
-          return {
-            from: txAccount,
-            to: destAddress,
-            token: "0x0",
-            amount: BigInt(msg.value || 0),
-            confirmed,
-            timestamp
-          };
-        }
-      }
+    if (!trace?.transactions && Date.now() / 1000 - timestamp < TRACE_RETRY_SECONDS) {
+      log.info(`Trace of ${txHash} is not indexed yet`);
+      return;
     }
-
-    if (tx.in_msg?.value) {
-      const from = this.normalizeAddress(tx.in_msg.source);
-
-      return {
-        from,
-        to: this.normalizeAddress(tx.account),
-        token: "0x0",
-        amount: BigInt(tx.in_msg.value),
-        confirmed,
-        timestamp
-      };
-    }
-
-    return;
-  }
-
-  private async tracedNativeContribution(txHash: string, rootHash: string, timestamp: number, senderAddress: string, recipientAddress: string): Promise<bigint | undefined> {
-    const traceResp = await withTimeout(
-      this.request(`/v3/traces?tx_hash=${encodeURIComponent(txHash)}&limit=1`),
-      TRACE_TIMEOUT_MS,
-      `Trace of ${txHash} timed out after ${TRACE_TIMEOUT_MS}ms`
-    );
-
-    const trace = traceResp.traces?.[0];
 
     if (!trace?.transactions || trace.trace?.tx_hash !== rootHash) {
       log.warn(`Transaction ${txHash} is not the root of an indexed trace; refusing to attribute the trace to it`);
@@ -281,12 +228,12 @@ export class TonNetwork implements Network, AttestationCapable {
     }
 
     if (trace.is_incomplete) {
-      if (Date.now() / 1000 - timestamp < INCOMPLETE_TRACE_RETRY_SECONDS) {
+      if (Date.now() / 1000 - timestamp < TRACE_RETRY_SECONDS) {
         log.info(`Trace of ${txHash} is not complete yet`);
         return;
       }
 
-      log.warn(`Trace of ${txHash} is still incomplete after ${INCOMPLETE_TRACE_RETRY_SECONDS}s`);
+      log.warn(`Trace of ${txHash} is still incomplete after ${TRACE_RETRY_SECONDS}s`);
       return 0n;
     }
 
@@ -297,28 +244,19 @@ export class TonNetwork implements Network, AttestationCapable {
       return 0n;
     }
 
-    const deltas = new Map<string, bigint>();
+    const transfers: Transfer[] = transactions.flatMap((tx: any) => (tx.out_msgs ?? [])
+      .filter((msg: any) => msg.destination && msg.value)
+      .map((msg: any): Transfer => [this.rawAddress(tx.account), this.rawAddress(msg.destination), BigInt(msg.value)])
+    );
 
-    for (const tx of transactions) {
-      if (tx.in_msg?.source && tx.in_msg.value) {
-        addDelta(deltas, this.rawAddress(tx.account), BigInt(tx.in_msg.value));
-      }
-
-      for (const msg of tx.out_msgs ?? []) {
-        if (msg.destination && msg.value) {
-          addDelta(deltas, this.rawAddress(tx.account), -BigInt(msg.value));
-        }
-      }
-    }
-
-    return provableContribution(deltas, new Set([this.rawAddress(senderAddress)]), this.rawAddress(recipientAddress));
+    return paymentFlow(transfers, this.rawAddress(senderAddress), this.rawAddress(recipientAddress));
   }
 
   private rawAddress(address: string): string {
     try {
       return Address.parse(address).toRawString();
     } catch {
-      return address.toLowerCase();
+      return address.toLowerCase().replace(/[^a-z0-9]/g, "");
     }
   }
 

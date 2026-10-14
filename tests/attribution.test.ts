@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { provableContribution } from '../src/utils.js';
+import { paymentFlow, provableContribution, Transfer } from '../src/utils.js';
 
 const PAYER = 'payer';
 const RECIPIENT = 'recipient';
@@ -41,5 +41,49 @@ describe('provableContribution', () => {
 
   it('gives nothing when the recipient is not credited', () => {
     expect(contribution([[PAYER, -100n], [RECIPIENT, -5n], [OTHER, 105n]])).toBe(0n);
+  });
+});
+
+describe('paymentFlow', () => {
+  const flow = (transfers: Transfer[]) => paymentFlow(transfers, PAYER, RECIPIENT);
+
+  it('counts a direct transfer', () => {
+    expect(flow([[PAYER, RECIPIENT, 100n]])).toBe(100n);
+  });
+
+  it('follows a payment through intermediaries', () => {
+    expect(flow([[PAYER, ROUTER, 100n], [ROUTER, OTHER, 100n], [OTHER, RECIPIENT, 100n]])).toBe(100n);
+  });
+
+  it('caps the flow at the narrowest hop', () => {
+    expect(flow([[PAYER, ROUTER, 100n], [ROUTER, RECIPIENT, 40n]])).toBe(40n);
+  });
+
+  it('counts tokens the payer received in the same transaction', () => {
+    expect(flow([[OTHER, PAYER, 100n], [PAYER, RECIPIENT, 100n]])).toBe(100n);
+  });
+
+  it('gives nothing when no transfer path leads from the payer to the recipient', () => {
+    expect(flow([[OTHER, RECIPIENT, 100n], [PAYER, ROUTER, 100n]])).toBe(0n);
+  });
+
+  it('nets transfers between the same two accounts', () => {
+    expect(flow([[PAYER, RECIPIENT, 100n], [RECIPIENT, PAYER, 30n]])).toBe(70n);
+  });
+
+  it('sums parallel paths', () => {
+    expect(flow([[PAYER, ROUTER, 60n], [ROUTER, RECIPIENT, 60n], [PAYER, OTHER, 40n], [OTHER, RECIPIENT, 40n]])).toBe(100n);
+  });
+
+  it('gives nothing for a round trip through the recipient own funds', () => {
+    expect(flow([[RECIPIENT, OTHER, 100n], [OTHER, PAYER, 100n], [PAYER, RECIPIENT, 100n]])).toBe(0n);
+  });
+
+  it('caps the flow at what the recipient keeps', () => {
+    expect(flow([[PAYER, RECIPIENT, 100n], [RECIPIENT, OTHER, 30n]])).toBe(70n);
+  });
+
+  it('terminates on cycles', () => {
+    expect(flow([[PAYER, ROUTER, 100n], [ROUTER, OTHER, 100n], [OTHER, ROUTER, 50n], [ROUTER, RECIPIENT, 50n]])).toBe(50n);
   });
 });

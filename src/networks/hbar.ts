@@ -2,7 +2,7 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
-import { addDelta, log, provableContribution, sleep } from '../utils.js';
+import { addDelta, log, provableContribution, settlement, sleep } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 
 interface HbarTransfer {
@@ -175,8 +175,8 @@ export class HbarNetwork implements Network, AttestationCapable {
     txHash: string,
     tokenAddress: string,
     recipientAddress: string,
-    tokenId?: bigint,
-    senderAddress?: string
+    tokenId: bigint | undefined,
+    senderAddress: string
   ): Promise<TransactionData | undefined> {
     if (tokenId !== undefined) {
       log.warn(`Don't support NFTs for HBAR network: ${txHash}`);
@@ -225,6 +225,13 @@ export class HbarNetwork implements Network, AttestationCapable {
       return;
     }
 
+    const expectedSender = await this.resolveAccountId(senderAddress);
+
+    if (!expectedSender) {
+      log.warn(`HBAR alias ${senderAddress} has no account on the mirror node; it cannot have paid ${txHash}`);
+      return settlement("", "", "", 0n, confirmed, consensusSeconds(primary));
+    }
+
     // A scheduled transfer settles on the scheduled sibling of the payer's entry and a contract call
     // records its token transfers on child entries, so the entry that credits is the one that pays.
     const candidates = entries
@@ -236,52 +243,16 @@ export class HbarNetwork implements Network, AttestationCapable {
         ? nettedTransfers(entry)
         : (entry.token_transfers ?? []).filter(t => t.token_id === tokenAddress);
 
-      const amount = this.creditedAmount(transfers, recipient);
+      const paid = this.contribution(entry, transfers, tokenAddress === "0x0", expectedSender, recipient);
 
-      if (amount === 0n) {
-        continue;
+      if (paid > 0n) {
+        return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, consensusSeconds(entry));
       }
-
-      // A transaction also debits its payer for the network fee, so more than one debited account
-      // leaves the settlement sender ambiguous.
-      const sender = this.soleSender(transfers, tokenAddress === "0x0" ? NETWORK_ACCOUNTS : []);
-
-      if (!sender) {
-        log.warn(`Transaction ${txHash} has no unambiguous sender of ${tokenAddress}; refusing to attribute one`);
-      }
-
-      let from = sender;
-      let paid = amount;
-
-      if (senderAddress) {
-        // The oracle string-compares from/to against the order, which may carry either address form.
-        const expectedSender = await this.resolveAccountId(senderAddress);
-
-        if (expectedSender && expectedSender === sender) {
-          from = senderAddress;
-        } else if (expectedSender) {
-          const contribution = this.contribution(entry, transfers, tokenAddress === "0x0", expectedSender, recipient);
-
-          if (contribution) {
-            from = senderAddress;
-            paid = contribution;
-          }
-        }
-      }
-
-      return {
-        from,
-        to: recipientAddress,
-        token: tokenAddress,
-        amount: paid,
-        confirmed,
-        timestamp: consensusSeconds(entry)
-      };
     }
 
-    log.warn(`Transaction ${txHash} does not credit ${tokenAddress} to ${recipientAddress}`);
+    log.warn(`Transaction ${txHash} does not pay ${tokenAddress} from ${senderAddress} to ${recipientAddress}`);
 
-    return { from: "", to: "", token: "", amount: 0n, confirmed, timestamp: consensusSeconds(primary) };
+    return settlement("", "", "", 0n, confirmed, consensusSeconds(primary));
   }
 
   // A transaction submitted through the JSON-RPC relay is only known to its payer by the Ethereum
@@ -309,12 +280,6 @@ export class HbarNetwork implements Network, AttestationCapable {
     return typeof account?.account === 'string' && ENTITY_ID.test(account.account) ? account.account : undefined;
   }
 
-  private creditedAmount(transfers: HbarTransfer[], recipientAddress: string): bigint {
-    return transfers
-      .filter(t => t.account === recipientAddress && t.amount > 0)
-      .reduce((sum, t) => sum + BigInt(safeAmount(t.amount)), 0n);
-  }
-
   private contribution(entry: HbarTransaction, transfers: HbarTransfer[], native: boolean, sender: string, recipient: string): bigint {
     const deltas = new Map<string, bigint>();
 
@@ -331,12 +296,6 @@ export class HbarNetwork implements Network, AttestationCapable {
     }
 
     return provableContribution(deltas, new Set([sender]), recipient);
-  }
-
-  private soleSender(transfers: HbarTransfer[], excluded: string[]): string {
-    const senders = [...new Set(transfers.filter(t => t.amount < 0 && !excluded.includes(t.account)).map(t => t.account))];
-
-    return senders.length === 1 ? senders[0] : "";
   }
 
   async transfer(): Promise<string> {

@@ -93,6 +93,13 @@ describe('TrxNetwork.getTxData native', () => {
     expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 
+  it('refuses a contract call when the expected payer is not a TRON address', async () => {
+    const tx = await mockedNetwork({ contract: walletCall, internals: [internal(WALLET, RECIPIENT, 700)] })
+      .getTxData('hash', '0x0', fromHex(RECIPIENT), undefined, 'not-an-address');
+
+    expect(tx).toMatchObject({ from: '', amount: 0n });
+  });
+
   it('refuses a contract call without internal transactions', async () => {
     const tx = await mockedNetwork({ contract: walletCall }).getTxData('hash', '0x0', fromHex(RECIPIENT), undefined, fromHex(WALLET));
 
@@ -117,11 +124,27 @@ describe('TrxNetwork.getTxData TRC20', () => {
     expect(tx).toMatchObject({ from: fromHex(WALLET), to: fromHex(RECIPIENT), amount: 500n });
   });
 
+  it('refuses when the expected payer is not a TRON address', async () => {
+    const logs = [transferLog(WALLET, ROUTER, 500n), transferLog(ROUTER, RECIPIENT, 500n)];
+
+    const tx = await mockedNetwork({ logs }).getTxData('hash', fromHex(TOKEN), fromHex(RECIPIENT), undefined, 'not-an-address');
+
+    expect(tx).toMatchObject({ from: '', amount: 0n });
+  });
+
+  it('attributes the payer forwarding tokens it received in the same transaction', async () => {
+    const logs = [transferLog(OTHER, WALLET, 500n), transferLog(WALLET, RECIPIENT, 500n)];
+
+    const tx = await mockedNetwork({ logs }).getTxData('hash', fromHex(TOKEN), fromHex(RECIPIENT), undefined, fromHex(WALLET));
+
+    expect(tx).toMatchObject({ from: fromHex(WALLET), amount: 500n });
+  });
+
   it('refuses a third party paying the recipient while the payer pays elsewhere', async () => {
     const logs = [transferLog(OTHER, RECIPIENT, 500n), transferLog(WALLET, ROUTER, 500n)];
 
     const tx = await mockedNetwork({ logs }).getTxData('hash', fromHex(TOKEN), fromHex(RECIPIENT), undefined, fromHex(WALLET));
 
-    expect(tx?.from).toBe(fromHex(OTHER));
+    expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 });

@@ -52,7 +52,29 @@ const traceOf = (transactions: any[], incomplete = false) => ({
 });
 
 describe('TonNetwork.getTxData native', () => {
-  it('attributes a multisig paying the recipient in a later transaction, minus the value its caller attached', async () => {
+  it('attributes a plain wallet payment', async () => {
+    const payment = { ...transaction(OWNER_WALLET, message(null, OWNER_WALLET, null), [message(OWNER_WALLET, RECIPIENT, AMOUNT)]), hash: 'hash-0', now: root.now };
+    const trace = traceOf([payment, transaction(RECIPIENT, message(OWNER_WALLET, RECIPIENT, AMOUNT), [])]);
+
+    const tx = await mockedNetwork(trace, payment).getTxData('hash-0', '0x0', RECIPIENT, undefined, OWNER_WALLET);
+
+    expect(tx).toMatchObject({ from: OWNER_WALLET, to: RECIPIENT, amount: BigInt(AMOUNT) });
+  });
+
+  it('attributes a multisig paying the recipient through an intermediary', async () => {
+    const trace = traceOf([
+      root,
+      transaction(MULTISIG, message(OWNER_WALLET, MULTISIG, '50000000'), [message(MULTISIG, SINK, AMOUNT)]),
+      transaction(SINK, message(MULTISIG, SINK, AMOUNT), [message(SINK, RECIPIENT, AMOUNT)]),
+      transaction(RECIPIENT, message(SINK, RECIPIENT, AMOUNT), [])
+    ]);
+
+    const tx = await mockedNetwork(trace).getTxData('hash-0', '0x0', RECIPIENT, undefined, MULTISIG);
+
+    expect(tx).toMatchObject({ from: MULTISIG, to: RECIPIENT, amount: BigInt(AMOUNT) });
+  });
+
+  it('attributes a multisig paying the recipient directly under the trace root', async () => {
     const trace = traceOf([
       root,
       transaction(MULTISIG, message(OWNER_WALLET, MULTISIG, '50000000'), [message(MULTISIG, RECIPIENT, AMOUNT)]),
@@ -61,7 +83,7 @@ describe('TonNetwork.getTxData native', () => {
 
     const tx = await mockedNetwork(trace).getTxData('hash-0', '0x0', RECIPIENT, undefined, MULTISIG);
 
-    expect(tx).toMatchObject({ from: MULTISIG, to: RECIPIENT, amount: BigInt(AMOUNT) - 50000000n });
+    expect(tx).toMatchObject({ from: MULTISIG, amount: BigInt(AMOUNT) });
   });
 
   it('retries while a fresh trace is incomplete', async () => {
@@ -75,13 +97,21 @@ describe('TonNetwork.getTxData native', () => {
 
     const tx = await mockedNetwork(traceOf([stale], true), stale).getTxData('hash-0', '0x0', RECIPIENT, undefined, MULTISIG);
 
-    expect(tx?.from).not.toBe(MULTISIG);
+    expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 
-  it('falls back when the trace is not indexed', async () => {
+  it('retries while a fresh trace is not indexed yet', async () => {
     const tx = await mockedNetwork(undefined).getTxData('hash-0', '0x0', RECIPIENT, undefined, MULTISIG);
 
-    expect(tx?.from).not.toBe(MULTISIG);
+    expect(tx).toBeUndefined();
+  });
+
+  it('refuses a trace that is still not indexed past the retry window', async () => {
+    const stale = { ...root, now: Math.floor(Date.now() / 1000) - 3600 };
+
+    const tx = await mockedNetwork(undefined, stale).getTxData('hash-0', '0x0', RECIPIENT, undefined, MULTISIG);
+
+    expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 
   it('attributes the trace only to its root transaction', async () => {
@@ -91,7 +121,7 @@ describe('TonNetwork.getTxData native', () => {
     const tx = await mockedNetwork(trace, { ...transaction(OWNER_WALLET, message(MULTISIG, OWNER_WALLET, '1'), []), hash: 'hash-2' })
       .getTxData('hash-2', '0x0', RECIPIENT, undefined, MULTISIG);
 
-    expect(tx?.from).not.toBe(MULTISIG);
+    expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 
   it('nets a bounced payment back to the payer', async () => {
@@ -104,7 +134,7 @@ describe('TonNetwork.getTxData native', () => {
 
     const tx = await mockedNetwork(trace).getTxData('hash-0', '0x0', RECIPIENT, undefined, MULTISIG);
 
-    expect(tx?.from).not.toBe(MULTISIG);
+    expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 
   it('refuses a third party paying the recipient while the payer pays elsewhere', async () => {
@@ -117,6 +147,6 @@ describe('TonNetwork.getTxData native', () => {
 
     const tx = await mockedNetwork(trace).getTxData('hash-0', '0x0', RECIPIENT, undefined, MULTISIG);
 
-    expect(tx?.from).not.toBe(MULTISIG);
+    expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 });

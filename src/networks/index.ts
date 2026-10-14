@@ -38,7 +38,7 @@ export interface Network {
   // implementations MUST populate TransactionData.tokenId when tokenId is passed — oracle id validation relies on it;
   // on mint-hosting EVM networks they MUST also populate envelopeFrom so method-2 settlements verify.
   // senderAddress is the expected payer: `from` is set to it only when the tx provably funded the recipient from it.
-  getTxData(txHash: string, tokenAddress: string, recipientAddress: string, tokenId?: bigint, senderAddress?: string, notBefore?: number): Promise<TransactionData | undefined>;
+  getTxData(txHash: string, tokenAddress: string, recipientAddress: string, tokenId: bigint | undefined, senderAddress: string, notBefore?: number): Promise<TransactionData | undefined>;
 
   /**
    * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.

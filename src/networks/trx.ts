@@ -4,7 +4,7 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from "./index.js";
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
-import { addDelta, log, memoize, provableContribution } from "../utils.js";
+import { log, memoize, paymentFlow, settlement, Transfer } from "../utils.js";
 import { proxyFetch } from '../proxy.js';
 
 const TRC20_TRANSFER_TOPIC = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
@@ -12,13 +12,15 @@ const TRC20_TRANSFER_TOPIC = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628
 const MAX_INTERNAL_TRANSACTIONS = 2000;
 const VALUE_TRANSFER_NOTES = new Set(["call", "create", "suicide"]);
 
-interface SmartContractCall {
-  owner_address: string;
-  contract_address: string;
-  call_value?: number;
-}
-
 const addrBody = (s: string): string => (s || "").replace(/^0x/, "").toLowerCase().slice(-40);
+
+const base58Body = (address: string): string | undefined => {
+  try {
+    return addrBody(toHex(address));
+  } catch {
+    return undefined;
+  }
+};
 
 export class TrxNetwork implements Network, AttestationCapable {
   private readonly rpcUrl: string;
@@ -86,8 +88,8 @@ export class TrxNetwork implements Network, AttestationCapable {
     txHash: string,
     tokenAddress: string,
     recipientAddress: string,
-    _tokenId?: bigint,
-    senderAddress?: string
+    _tokenId: bigint | undefined,
+    senderAddress: string
   ): Promise<TransactionData | undefined> {
     const currentBlock = await this.request(`/wallet/getblockbylatestnum`, {
       method: "POST",
@@ -143,35 +145,7 @@ export class TrxNetwork implements Network, AttestationCapable {
 
       const contract = response.raw_data?.contract?.[0];
 
-      if (contract?.type === "TriggerSmartContract" && senderAddress) {
-        const contribution = this.nativeContribution(txHash, contract.parameter.value, info.internal_transactions ?? [], senderAddress, recipientAddress);
-
-        if (contribution) {
-          return { from: senderAddress, to: recipientAddress, token: tokenAddress, amount: contribution, confirmed, timestamp };
-        }
-      }
-
-      if (contract?.type !== "TransferContract") {
-        log.warn(`Transaction ${txHash} is not a native TRX transfer: ${contract?.type}`);
-
-        return {
-          from: "",
-          to: "",
-          token: "",
-          amount: 0n,
-          confirmed,
-          timestamp
-        };
-      }
-
-      return {
-        from: fromHex(contract.parameter.value.owner_address),
-        to: fromHex(contract.parameter.value.to_address),
-        token: tokenAddress,
-        amount: BigInt(contract.parameter.value.amount),
-        confirmed,
-        timestamp
-      };
+      return this.payment(this.nativeTransfers(txHash, contract, info.internal_transactions ?? []), senderAddress, tokenAddress, recipientAddress, confirmed, timestamp);
     }
 
     const response = await this.request(
@@ -204,79 +178,48 @@ export class TrxNetwork implements Network, AttestationCapable {
       };
     }
 
-    // TRC20 — trust only a Transfer emitted by the token contract itself, to the expected
-    // recipient. Reading log[0] blindly lets approve() / events from other contracts satisfy
-    // validation with no real transfer.
     const tokenBody = addrBody(toHex(tokenAddress));
-    const recipientBody = addrBody(toHex(recipientAddress));
 
-    const transferLog = (response.log || []).find((l: any) =>
-      addrBody(l.address) === tokenBody &&
-      (l.topics?.[0] || "").replace(/^0x/, "").toLowerCase() === TRC20_TRANSFER_TOPIC &&
-      l.topics?.length === 3 &&
-      addrBody(l.topics[2]) === recipientBody
-    );
+    const transfers: Transfer[] = (response.log || [])
+      .filter((l: any) =>
+        addrBody(l.address) === tokenBody &&
+        (l.topics?.[0] || "").replace(/^0x/, "").toLowerCase() === TRC20_TRANSFER_TOPIC &&
+        l.topics?.length === 3
+      )
+      .map((l: any): Transfer => {
+        const data = (l.data || "").replace(/^0x/, "");
+        return [addrBody(l.topics[1]), addrBody(l.topics[2]), data ? BigInt("0x" + data) : 0n];
+      });
 
-    if (!transferLog) {
-      log.warn(`Transaction ${txHash} has no TRC20 Transfer of ${tokenAddress} to ${recipientAddress}`);
-
-      return {
-        from: "",
-        to: "",
-        token: "",
-        amount: 0n,
-        confirmed,
-        timestamp
-      };
-    }
-
-    const amountHex = (transferLog.data || "").replace(/^0x/, "");
-
-    const legacy = {
-      from: fromHex("0x" + addrBody(transferLog.topics[1])),
-      to: fromHex("0x" + addrBody(transferLog.topics[2])),
-      token: fromHex("0x" + tokenBody),
-      amount: amountHex ? BigInt("0x" + amountHex) : 0n,
-      confirmed,
-      timestamp
-    };
-
-    if (!senderAddress || legacy.from === senderAddress) {
-      return legacy;
-    }
-
-    const deltas = new Map<string, bigint>();
-
-    for (const l of response.log || []) {
-      if (addrBody(l.address) !== tokenBody || (l.topics?.[0] || "").replace(/^0x/, "").toLowerCase() !== TRC20_TRANSFER_TOPIC || l.topics?.length !== 3) {
-        continue;
-      }
-
-      const data = (l.data || "").replace(/^0x/, "");
-      const amount = data ? BigInt("0x" + data) : 0n;
-
-      addDelta(deltas, addrBody(l.topics[1]), -amount);
-      addDelta(deltas, addrBody(l.topics[2]), amount);
-    }
-
-    const contribution = provableContribution(deltas, new Set([addrBody(toHex(senderAddress))]), recipientBody);
-
-    return contribution ? { ...legacy, from: senderAddress, amount: contribution } : legacy;
+    return this.payment(transfers, senderAddress, tokenAddress, recipientAddress, confirmed, timestamp);
   }
 
-  private nativeContribution(txHash: string, call: SmartContractCall, internalTransactions: any[], senderAddress: string, recipientAddress: string): bigint {
+  private payment(transfers: Transfer[], senderAddress: string, tokenAddress: string, recipientAddress: string, confirmed: boolean, timestamp: number): TransactionData {
+    const payerBody = base58Body(senderAddress);
+    const recipientBody = base58Body(recipientAddress);
+    const amount = payerBody && recipientBody ? paymentFlow(transfers, payerBody, recipientBody) : 0n;
+
+    return settlement(senderAddress, recipientAddress, tokenAddress, amount, confirmed, timestamp);
+  }
+
+  private nativeTransfers(txHash: string, contract: any, internalTransactions: any[]): Transfer[] {
+    const call = contract?.parameter?.value;
+
+    if (contract?.type === "TransferContract") {
+      return [[addrBody(call.owner_address), addrBody(call.to_address), BigInt(call.amount)]];
+    }
+
+    if (contract?.type !== "TriggerSmartContract") {
+      log.warn(`Transaction ${txHash} moves no native TRX: ${contract?.type}`);
+      return [];
+    }
+
     if (internalTransactions.length > MAX_INTERNAL_TRANSACTIONS) {
       log.warn(`Transaction ${txHash} has ${internalTransactions.length} internal transactions, over the attribution cap of ${MAX_INTERNAL_TRANSACTIONS}`);
-      return 0n;
+      return [];
     }
 
-    const deltas = new Map<string, bigint>();
-    const callValue = BigInt(call.call_value ?? 0);
-
-    if (callValue > 0n) {
-      addDelta(deltas, addrBody(call.owner_address), -callValue);
-      addDelta(deltas, addrBody(call.contract_address), callValue);
-    }
+    const transfers: Transfer[] = [[addrBody(call.owner_address), addrBody(call.contract_address), BigInt(call.call_value ?? 0)]];
 
     for (const internal of internalTransactions) {
       if (internal.rejected || !VALUE_TRANSFER_NOTES.has(Buffer.from(internal.note ?? "", "hex").toString())) {
@@ -284,16 +227,13 @@ export class TrxNetwork implements Network, AttestationCapable {
       }
 
       for (const { callValue: value, tokenId } of internal.callValueInfo ?? []) {
-        if (tokenId !== undefined || !value) {
-          continue;
+        if (tokenId === undefined && value) {
+          transfers.push([addrBody(internal.caller_address), addrBody(internal.transferTo_address), BigInt(value)]);
         }
-
-        addDelta(deltas, addrBody(internal.caller_address), -BigInt(value));
-        addDelta(deltas, addrBody(internal.transferTo_address), BigInt(value));
       }
     }
 
-    return provableContribution(deltas, new Set([addrBody(toHex(senderAddress))]), addrBody(toHex(recipientAddress)));
+    return transfers;
   }
 
   /**
