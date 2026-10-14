@@ -79,6 +79,7 @@ const networkBuilders = {
   "XRP": (cf: NetworkConfig) => new XrpNetwork(cf.rpcUrl, 1),
   "HBAR": (cf: NetworkConfig) => new HbarNetwork(cf.rpcUrl),
   "MON": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 10),
+  "AVAXC": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 2),
   "TAO": (cf: NetworkConfig) => new TaoNetwork(cf.rpcUrl),
 }
 
