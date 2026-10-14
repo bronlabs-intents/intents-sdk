@@ -27,7 +27,9 @@ function mockTransaction(meta: any, accountKeys: string[] = [FEE_PAYER, SENDER],
 }
 
 describe('SolNetwork.getTxData', () => {
-  beforeEach(() => vi.mocked(proxyFetch).mockReset());
+  beforeEach(() => {
+    vi.mocked(proxyFetch).mockReset();
+  });
 
   it('reports an SPL mint with an empty token-level from and the fee payer as the envelope sender', async () => {
     mockTransaction({ preTokenBalances: [], postTokenBalances: [balance(RECEIVER, '1500000')] });
