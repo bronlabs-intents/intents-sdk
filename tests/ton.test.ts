@@ -254,3 +254,33 @@ describe('TonNetwork.getTxData jetton', () => {
       .toBe('0:ac23c9219b680df697b22ac84c6075ed428ddabe05f48fdb7c02363331435a44');
   });
 });
+
+describe('TonNetwork.ping', () => {
+  const pinged = (responses: Record<string, any>) => {
+    const network = new TonNetwork('http://rpc', 1);
+
+    vi.spyOn(network as any, 'request').mockImplementation(async (...args: any[]) => {
+      const response = responses[(args[0] as string).split('?')[0]];
+
+      if (response instanceof Error) {
+        throw response;
+      }
+
+      return response;
+    });
+
+    return network.ping();
+  };
+
+  it('accepts an indexer that serves traces and get-methods', async () => {
+    await expect(pinged({ '/v3/masterchainInfo': {}, '/v3/traces': { traces: [] }, '/v3/runGetMethod': { exit_code: -13, stack: [] } })).resolves.toBeUndefined();
+  });
+
+  it('refuses an indexer without /v3/traces', async () => {
+    await expect(pinged({ '/v3/masterchainInfo': {}, '/v3/traces': new Error('Request failed 404') })).rejects.toThrow('404');
+  });
+
+  it('refuses an indexer without /v3/runGetMethod', async () => {
+    await expect(pinged({ '/v3/masterchainInfo': {}, '/v3/traces': { traces: [] }, '/v3/runGetMethod': new Error('Request failed 404') })).rejects.toThrow('404');
+  });
+});

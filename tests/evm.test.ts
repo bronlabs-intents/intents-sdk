@@ -294,3 +294,27 @@ describe('EvmNetwork.getTxData ERC20', () => {
     expect(tx).toMatchObject({ from: ZERO, envelopeFrom: RELAYER });
   });
 });
+
+describe('EvmNetwork.ping', () => {
+  it('accepts an RPC that serves debug_traceTransaction', async () => {
+    mockRpc({ traceError: { code: -32000, message: 'transaction not found' } });
+
+    await expect(network().ping()).resolves.toBeUndefined();
+  });
+
+  it('accepts an RPC that answers an unknown trace with null', async () => {
+    mockRpc({ trace: null });
+
+    await expect(network().ping()).resolves.toBeUndefined();
+  });
+
+  it.each([
+    { code: -32601, message: 'Method not found' },
+    { code: -32000, message: 'rpc method is not whitelisted' },
+    { code: -32004, message: 'debug namespace is not supported' }
+  ])('refuses an RPC without debug_traceTransaction: $message', async (traceError) => {
+    mockRpc({ traceError });
+
+    await expect(network().ping()).rejects.toThrow('does not serve debug_traceTransaction');
+  });
+});

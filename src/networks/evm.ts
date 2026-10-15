@@ -53,6 +53,12 @@ export class EvmNetwork implements Network, AttestationCapable {
 
   async ping(): Promise<void> {
     await this.provider.getBlockNumber();
+
+    const { error } = await this.traceTransaction(ethers.ZeroHash);
+
+    if (error && (error.code === -32601 || /method|whitelist|not supported|not allowed/i.test(error.message))) {
+      throw new Error(`RPC does not serve debug_traceTransaction: ${error.message}`);
+    }
   }
 
   addressFromPublicKey(publicKey: string): string {
@@ -67,6 +73,7 @@ export class EvmNetwork implements Network, AttestationCapable {
     return memoize(`supports-interface-${this.rpcUrl}-${tokenAddress}-${interfaceId}`, 86400 * 1000, async () => {
       const { result } = await proxyFetch(this.rpcUrl, {
         method: 'POST',
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           id: 1,
           jsonrpc: "2.0",
@@ -105,6 +112,7 @@ export class EvmNetwork implements Network, AttestationCapable {
     return memoize(`decimals-${this.rpcUrl}-${tokenAddress}-${tokenId ?? ''}`, 86400 * 1000, async () => {
       const { result } = await proxyFetch(this.rpcUrl, {
         method: 'POST',
+        headers: { 'content-type': 'application/json' },
         body: JSON.stringify({
           id: 1,
           jsonrpc: "2.0",
@@ -130,6 +138,7 @@ export class EvmNetwork implements Network, AttestationCapable {
   async blockTimestamp(blockNumber: string): Promise<number> {
     const { result } = await proxyFetch(this.rpcUrl, {
       method: 'POST',
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         id: 1,
         jsonrpc: "2.0",
@@ -146,6 +155,7 @@ export class EvmNetwork implements Network, AttestationCapable {
 
     const { result: receiptResult } = await proxyFetch(this.rpcUrl, {
       method: 'POST',
+      headers: { 'content-type': 'application/json' },
       body: JSON.stringify({
         id: 1,
         jsonrpc: "2.0",
@@ -235,18 +245,22 @@ export class EvmNetwork implements Network, AttestationCapable {
     ]);
   }
 
+  private traceTransaction(txHash: string): Promise<{ result?: CallFrame; error?: { code: number; message: string } }> {
+    return proxyFetch(this.rpcUrl, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        id: 1,
+        jsonrpc: "2.0",
+        method: "debug_traceTransaction",
+        params: [txHash, { tracer: "callTracer" }]
+      })
+    }).then((res) => res.json() as Promise<{ result?: CallFrame; error?: { code: number; message: string } }>);
+  }
+
   private async tracedNativeContribution(txHash: string, timestamp: number, senderAddress: string, recipientAddress: string): Promise<bigint> {
     const response = await traceWithinRetryWindow(
-      proxyFetch(this.rpcUrl, {
-        method: 'POST',
-        body: JSON.stringify({
-          id: 1,
-          jsonrpc: "2.0",
-          method: "debug_traceTransaction",
-          params: [txHash, { tracer: "callTracer" }]
-        })
-      })
-        .then((res) => res.json() as Promise<{ result?: CallFrame; error?: { code: number; message: string } }>)
+      this.traceTransaction(txHash)
         .then((body) => {
           if (!body.result) {
             throw new Error(`Trace of ${txHash} unavailable: ${JSON.stringify(body.error ?? null)}`);

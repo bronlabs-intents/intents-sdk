@@ -46,6 +46,14 @@ export class TonNetwork implements Network, AttestationCapable {
 
   async ping(): Promise<void> {
     await this.request("/v3/masterchainInfo");
+
+    const traces = await this.request(`/v3/traces?tx_hash=${encodeURIComponent(Buffer.alloc(32).toString("base64"))}&limit=1`);
+
+    if (!Array.isArray(traces.traces)) {
+      throw new Error("Indexer does not serve /v3/traces");
+    }
+
+    await this.runGetMethod(`0:${"0".repeat(64)}`, "seqno", []);
   }
 
   async getDecimals(tokenAddress: string): Promise<number> {

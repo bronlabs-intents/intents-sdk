@@ -110,9 +110,10 @@ interface NetworkConfig {
 `getTxData` credits the expected payer with what actually reached the recipient from it inside the transaction, so a native settlement is read from the transaction's internal transfers:
 
 - EVM networks: the RPC must serve `debug_traceTransaction` with the `callTracer`, with state for recent blocks.
-- TON: the indexer must serve `/v3/traces`.
+- TON: the indexer must serve `/v3/traces` and `/v3/runGetMethod`.
+- TRON: the node must run with `vm.saveInternalTx = true`, or TRX paid through a contract is not credited.
 
-Without them, native settlements on those networks are retried for 10 minutes and then reported as unpaid.
+`ping()` checks the EVM and TON requirements, so an oracle does not subscribe to a network whose RPC lacks them. The TRON setting cannot be detected from outside.
 
 ## Error Handling
 
