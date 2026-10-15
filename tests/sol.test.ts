@@ -27,7 +27,9 @@ function mockTransaction(meta: any, accountKeys: string[] = [FEE_PAYER, SENDER])
 }
 
 describe('SolNetwork.getTxData', () => {
-  beforeEach(() => vi.mocked(proxyFetch).mockReset());
+  beforeEach(() => {
+    vi.mocked(proxyFetch).mockReset();
+  });
 
   it('reports an SPL mint with an empty token-level from and the fee payer as the envelope sender', async () => {
     mockTransaction({ preTokenBalances: [], postTokenBalances: [balance(RECEIVER, '1500000')] });
@@ -87,6 +89,53 @@ describe('SolNetwork.getTxData', () => {
     const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', MINT, RECEIVER, undefined, SENDER);
 
     expect(tx).toMatchObject({ from: '', to: '', token: '', amount: 0n });
+  });
+
+  it('reads a v1 transaction, which needs maxSupportedTransactionVersion 1', async () => {
+    vi.mocked(proxyFetch).mockImplementation((_url: string, init?: any) => {
+      const { method, params } = JSON.parse(init?.body ?? '{}');
+
+      if (method === 'getLatestBlockhash') {
+        return Promise.resolve({ json: () => Promise.resolve({ result: { context: { slot: 1000 } } }) }) as any;
+      }
+
+      const body =
+        params[1].maxSupportedTransactionVersion >= 1
+          ? {
+              result: {
+                slot: 900,
+                blockTime: 1700000000,
+                version: 1,
+                meta: {
+                  err: null,
+                  preTokenBalances: [balance(SENDER, '1000'), balance(RECEIVER, '0')],
+                  postTokenBalances: [balance(SENDER, '400'), balance(RECEIVER, '600')],
+                },
+                transaction: { message: { accountKeys: [FEE_PAYER, SENDER], header: { numRequiredSignatures: 2 } } },
+              },
+            }
+          : { error: { code: -32015, message: 'Transaction version (1) is not supported by the requesting client.' } };
+
+      return Promise.resolve({ json: () => Promise.resolve(body) }) as any;
+    });
+
+    const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', MINT, RECEIVER);
+
+    expect(tx).toMatchObject({ from: SENDER, to: RECEIVER, token: MINT, amount: 600n, confirmed: true });
+  });
+
+  it('throws on a JSON-RPC error instead of reporting the transaction as not found yet', async () => {
+    vi.mocked(proxyFetch).mockImplementation((_url: string, init?: any) => {
+      const { method } = JSON.parse(init?.body ?? '{}');
+      const body =
+        method === 'getLatestBlockhash'
+          ? { result: { context: { slot: 1000 } } }
+          : { error: { code: -32015, message: 'Transaction version (2) is not supported by the requesting client.' } };
+
+      return Promise.resolve({ json: () => Promise.resolve(body) }) as any;
+    });
+
+    await expect(new SolNetwork('http://rpc', 10).getTxData('sig', MINT, RECEIVER)).rejects.toThrow('-32015');
   });
 });
 

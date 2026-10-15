@@ -220,6 +220,7 @@ export const EIP712_SETTLEMENT_CHAIN_IDS: Record<string, number> = {
   ARB: 42161,
   hyperEVM: 999,
   MON: 143,
+  AVAXC: 43114,
   testETH: 11155111,
   testOP: 11155420,
 };
