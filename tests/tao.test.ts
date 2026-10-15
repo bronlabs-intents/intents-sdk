@@ -126,6 +126,22 @@ describe('TaoNetwork.getTxData', () => {
     expect(blockFetches(rpc).length).toBeLessThan(60);
   });
 
+  it('sums several transfers from the payer in one batch', async () => {
+    const { network } = mockedNetwork(succeeded(transfer(SENDER_KEY, RECIPIENT_KEY, 1n), transfer(SENDER_KEY, RECIPIENT_KEY, 2n)));
+
+    const tx = await network.getTxData(MAINNET_TRANSFER_HASH, '0x0', RECIPIENT, undefined, SENDER, notBeforeBlocksAgo(20));
+
+    expect(tx).toMatchObject({ from: SENDER, amount: 3n });
+  });
+
+  it('attributes a payment routed through another account', async () => {
+    const { network } = mockedNetwork(succeeded(transfer(SENDER_KEY, OTHER_KEY, 5n), transfer(OTHER_KEY, RECIPIENT_KEY, 5n)));
+
+    const tx = await network.getTxData(MAINNET_TRANSFER_HASH, '0x0', RECIPIENT, undefined, SENDER, notBeforeBlocksAgo(20));
+
+    expect(tx).toMatchObject({ from: SENDER, amount: 5n });
+  });
+
   it('rejects a failed extrinsic', async () => {
     const { network } = mockedNetwork({ failed: true, transfers: [transfer(SENDER_KEY, RECIPIENT_KEY, 1n)] });
 
@@ -136,8 +152,7 @@ describe('TaoNetwork.getTxData', () => {
 
   it.each([
     ['another recipient', succeeded(transfer(SENDER_KEY, OTHER_KEY, 1n))],
-    ['another sender', succeeded(transfer(OTHER_KEY, RECIPIENT_KEY, 1n))],
-    ['two matching transfers', succeeded(transfer(SENDER_KEY, RECIPIENT_KEY, 1n), transfer(SENDER_KEY, RECIPIENT_KEY, 1n))]
+    ['another sender', succeeded(transfer(OTHER_KEY, RECIPIENT_KEY, 1n))]
   ])('rejects %s', async (_, outcome) => {
     const { network } = mockedNetwork(outcome);
 

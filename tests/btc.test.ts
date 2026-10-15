@@ -81,18 +81,18 @@ const SENDER_A = 'bc1qsenderaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
 const SENDER_B = 'bc1qsenderbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 const RECIPIENT = 'bc1qrecipientcccccccccccccccccccccccccccc';
 
-function mockedNetwork(vinAddresses: string[], sighashFlag: number): BtcNetwork {
+function mockedNetwork(inputs: [string, number][], outputs: [string, number][], sighashFlag = 0x01): BtcNetwork {
   const network = new BtcNetwork('http://localhost', 1);
 
-  const vin = vinAddresses.map((_, i) => ({
+  const vin = inputs.map((_, i) => ({
     txid: `prev${i}`,
     vout: 0,
     txinwitness: [derSig(sighashFlag).toString('hex'), pubkey.toString('hex')]
   }));
 
-  const prevTxs = Object.fromEntries(vinAddresses.map((address, i) => [
+  const prevTxs = Object.fromEntries(inputs.map(([address, value], i) => [
     `prev${i}`,
-    { txid: `prev${i}`, vin: [], vout: [{ value: 1, scriptPubKey: { address, type: 'witness_v0_keyhash' } }], confirmations: 10 }
+    { txid: `prev${i}`, vin: [], vout: [{ value, scriptPubKey: { address, type: 'witness_v0_keyhash' } }], confirmations: 10 }
   ]));
 
   vi.spyOn(network as any, 'rpcCall').mockImplementation(async (...args: any[]) => {
@@ -102,45 +102,55 @@ function mockedNetwork(vinAddresses: string[], sighashFlag: number): BtcNetwork 
       return {
         txid: 'maintx',
         vin,
-        vout: [{ value: 4.6, scriptPubKey: { address: RECIPIENT, type: 'witness_v0_keyhash' } }],
+        vout: outputs.map(([address, value]) => ({ value, scriptPubKey: { address, type: 'witness_v0_keyhash' } })),
         confirmations: 10,
         blocktime: 1784671109
       };
     }
+    if (!(params[0] in prevTxs)) throw new Error('prevout unavailable');
     return prevTxs[params[0]];
   });
 
   return network;
 }
 
-describe('getTxData sender attribution', () => {
-  it('attributes from when all inputs are from one address, sighash irrelevant', async () => {
-    const tx = await mockedNetwork([SENDER_A, SENDER_A], 0x83).getTxData('maintx', '0x0', RECIPIENT);
-    expect(tx?.from).toBe(SENDER_A);
+describe('getTxData', () => {
+  it('credits the payer with its payment, change excluded', async () => {
+    const tx = await mockedNetwork([[SENDER_A, 1]], [[RECIPIENT, 0.6], [SENDER_A, 0.39]]).getTxData('maintx', '0x0', RECIPIENT, undefined, SENDER_A);
+    expect(tx).toMatchObject({ from: SENDER_A, to: RECIPIENT, amount: 60000000n, confirmed: true, timestamp: 1784671109 });
   });
 
-  it('attributes expected sender on multi-address inputs when it owns an input and all sigs are SIGHASH_ALL', async () => {
-    const tx = await mockedNetwork([SENDER_A, SENDER_B], 0x01).getTxData('maintx', '0x0', RECIPIENT, undefined, SENDER_A);
-    expect(tx?.from).toBe(SENDER_A);
+  it('sums several inputs of the payer and several outputs to the recipient', async () => {
+    const tx = await mockedNetwork([[SENDER_A, 1], [SENDER_A, 1]], [[RECIPIENT, 1.2], [RECIPIENT, 0.7]]).getTxData('maintx', '0x0', RECIPIENT, undefined, SENDER_A);
+    expect(tx).toMatchObject({ from: SENDER_A, amount: 190000000n });
   });
 
-  it('refuses multi-address inputs without an expected sender', async () => {
-    const tx = await mockedNetwork([SENDER_A, SENDER_B], 0x01).getTxData('maintx', '0x0', RECIPIENT);
-    expect(tx?.from).toBe('');
+  it('does not count what another input funded', async () => {
+    const tx = await mockedNetwork([[SENDER_A, 1], [SENDER_B, 0.5]], [[RECIPIENT, 1.2], [SENDER_A, 0.29]]).getTxData('maintx', '0x0', RECIPIENT, undefined, SENDER_A);
+    expect(tx).toMatchObject({ from: SENDER_A, amount: 70000000n });
+  });
+
+  it('counts only the expected address of a wallet spending from several addresses', async () => {
+    const tx = await mockedNetwork([[SENDER_A, 0.5], [SENDER_B, 0.5]], [[RECIPIENT, 0.9]]).getTxData('maintx', '0x0', RECIPIENT, undefined, SENDER_A);
+    expect(tx).toMatchObject({ from: SENDER_A, amount: 40000000n });
   });
 
   it('refuses when the expected sender owns no input', async () => {
-    const tx = await mockedNetwork([SENDER_A, SENDER_B], 0x01).getTxData('maintx', '0x0', RECIPIENT, undefined, RECIPIENT);
-    expect(tx?.from).toBe('');
+    const tx = await mockedNetwork([[SENDER_B, 1]], [[RECIPIENT, 0.9]]).getTxData('maintx', '0x0', RECIPIENT, undefined, SENDER_A);
+    expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 
-  it('refuses multi-address inputs when a signature is not SIGHASH_ALL', async () => {
-    const tx = await mockedNetwork([SENDER_A, SENDER_B], 0x81).getTxData('maintx', '0x0', RECIPIENT, undefined, SENDER_A);
-    expect(tx?.from).toBe('');
+  it('refuses when an input of the payer does not sign every output', async () => {
+    const tx = await mockedNetwork([[SENDER_A, 1]], [[RECIPIENT, 0.9]], 0x81).getTxData('maintx', '0x0', RECIPIENT, undefined, SENDER_A);
+    expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 
-  it('sums outputs to the recipient regardless of sender attribution', async () => {
-    const tx = await mockedNetwork([SENDER_A, SENDER_B], 0x01).getTxData('maintx', '0x0', RECIPIENT, undefined, SENDER_A);
-    expect(tx?.amount).toBe(460000000n);
+  it('retries when a previous output cannot be fetched', async () => {
+    const network = mockedNetwork([[SENDER_A, 1]], [[RECIPIENT, 0.9]]);
+    const rpc = vi.mocked((network as any).rpcCall);
+    const original = rpc.getMockImplementation()!;
+    rpc.mockImplementation(async (method: string, params: any[]) => params[0] === 'prev0' ? Promise.reject(new Error('timeout')) : original(method, params));
+
+    expect(await network.getTxData('maintx', '0x0', RECIPIENT, undefined, SENDER_A)).toBeUndefined();
   });
 });

@@ -130,7 +130,7 @@ describe('toMirrorTxId', () => {
 
 describe('getTxData native HBAR', () => {
   it('reads amount, sender and consensus time of a successful transfer', async () => {
-    const tx = await mockedNetwork(withEntries(nativeEntry)).getTxData(TX_ID, '0x0', RECIPIENT);
+    const tx = await mockedNetwork(withEntries(nativeEntry)).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER);
 
     expect(tx).toEqual({
       from: PAYER,
@@ -143,7 +143,7 @@ describe('getTxData native HBAR', () => {
   });
 
   it('accepts the SDK transaction id form', async () => {
-    const tx = await mockedNetwork(withEntries(nativeEntry)).getTxData(SDK_TX_ID, '0x0', RECIPIENT);
+    const tx = await mockedNetwork(withEntries(nativeEntry)).getTxData(SDK_TX_ID, '0x0', RECIPIENT, undefined, PAYER);
     expect(tx?.amount).toBe(2588995597n);
   });
 
@@ -153,19 +153,19 @@ describe('getTxData native HBAR', () => {
       transfers: [...nativeEntry.transfers, { account: '0.0.800', amount: -12345 }]
     };
 
-    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, '0x0', RECIPIENT);
+    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER);
     expect(tx?.from).toBe(PAYER);
   });
 
-  it('refuses to attribute a sender when several accounts are debited', async () => {
+  it('counts only the payer share when another account funds the recipient as well', async () => {
     const entry = {
       ...nativeEntry,
       transfers: [...nativeEntry.transfers, { account: OTHER, amount: -100 }]
     };
 
-    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, '0x0', RECIPIENT);
-    expect(tx?.from).toBe('');
-    expect(tx?.amount).toBe(2588995597n);
+    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER);
+    expect(tx?.from).toBe(PAYER);
+    expect(tx?.amount).toBe(2588995497n);
   });
 
   it('sums several credits to the recipient', async () => {
@@ -174,7 +174,7 @@ describe('getTxData native HBAR', () => {
       transfers: [...nativeEntry.transfers, { account: RECIPIENT, amount: 403 }]
     };
 
-    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, '0x0', RECIPIENT);
+    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER);
     expect(tx?.amount).toBe(2588995597n + 403n);
   });
 
@@ -190,7 +190,7 @@ describe('getTxData native HBAR', () => {
       staking_reward_transfers: [{ account: RECIPIENT, amount: 5316612 }]
     };
 
-    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, '0x0', RECIPIENT);
+    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER);
 
     expect(tx?.amount).toBe(10000000000n);
     expect(tx?.from).toBe(PAYER);
@@ -208,7 +208,7 @@ describe('getTxData native HBAR', () => {
       staking_reward_transfers: [{ account: PAYER, amount: 200000000 }]
     };
 
-    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, '0x0', RECIPIENT);
+    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER);
 
     expect(tx?.from).toBe(PAYER);
     expect(tx?.amount).toBe(100000000n);
@@ -226,7 +226,7 @@ describe('getTxData native HBAR', () => {
       staking_reward_transfers: [{ account: RECIPIENT, amount: 5316612 }]
     };
 
-    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, '0x0', RECIPIENT);
+    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER);
 
     expect(tx).toEqual({ from: '', to: '', token: '', amount: 0n, confirmed: true, timestamp: 1785741962 });
   });
@@ -241,14 +241,14 @@ describe('getTxData native HBAR', () => {
       staking_reward_transfers: [{ account: RECIPIENT, amount: 9007199254740000 }]
     };
 
-    await expect(mockedNetwork(withEntries(entry)).getTxData(TX_ID, '0x0', RECIPIENT))
+    await expect(mockedNetwork(withEntries(entry)).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER))
       .rejects.toThrow(/exceeds safe integer range/);
   });
 
   it('picks the successful submission when the id was submitted twice', async () => {
     const duplicate = { ...nativeEntry, result: 'DUPLICATE_TRANSACTION', transfers: [] };
 
-    const tx = await mockedNetwork(withEntries(duplicate, nativeEntry)).getTxData(TX_ID, '0x0', RECIPIENT);
+    const tx = await mockedNetwork(withEntries(duplicate, nativeEntry)).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER);
     expect(tx?.amount).toBe(2588995597n);
   });
 
@@ -271,7 +271,7 @@ describe('getTxData native HBAR', () => {
       ]
     };
 
-    const tx = await mockedNetwork(withEntries(scheduleCreate, executed)).getTxData(TX_ID, '0x0', RECIPIENT);
+    const tx = await mockedNetwork(withEntries(scheduleCreate, executed)).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER);
 
     expect(tx).toEqual({
       from: PAYER,
@@ -283,7 +283,7 @@ describe('getTxData native HBAR', () => {
     });
   });
 
-  it('prefers the payer entry over a scheduled sibling that credits as well', async () => {
+  it('sums the payer entry and a scheduled sibling that credits as well', async () => {
     const scheduled = {
       ...nativeEntry,
       consensus_timestamp: '1785742061.184710419',
@@ -294,22 +294,41 @@ describe('getTxData native HBAR', () => {
       ]
     };
 
-    const tx = await mockedNetwork(withEntries(scheduled, nativeEntry)).getTxData(TX_ID, '0x0', RECIPIENT);
+    const tx = await mockedNetwork(withEntries(scheduled, nativeEntry)).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER);
 
-    expect(tx?.amount).toBe(2588995597n);
-    expect(tx?.timestamp).toBe(1785741962);
+    expect(tx?.amount).toBe(2588995597n + 777n);
+    expect(tx?.timestamp).toBe(1785742061);
+  });
+
+  it('follows a token payment routed through a contract across child entries', async () => {
+    const parent = { ...tokenEntry, token_transfers: [] };
+    const toRouter = { ...tokenEntry, nonce: 1, transfers: [], token_transfers: [{ token_id: TOKEN, account: PAYER, amount: -500 }, { token_id: TOKEN, account: OTHER, amount: 500 }] };
+    const toRecipient = { ...tokenEntry, nonce: 2, transfers: [], token_transfers: [{ token_id: TOKEN, account: OTHER, amount: -500 }, { token_id: TOKEN, account: RECIPIENT, amount: 500 }] };
+
+    const tx = await mockedNetwork(withEntries(parent, toRouter, toRecipient)).getTxData(TX_ID, TOKEN, RECIPIENT, undefined, PAYER);
+
+    expect(tx).toMatchObject({ from: PAYER, amount: 500n });
+  });
+
+  it('does not credit tokens minted to the recipient while the payer pays elsewhere', async () => {
+    const parent = { ...tokenEntry, token_transfers: [{ token_id: TOKEN, account: PAYER, amount: -500 }, { token_id: TOKEN, account: OTHER, amount: 500 }] };
+    const mint = { ...tokenEntry, nonce: 1, transfers: [], token_transfers: [{ token_id: TOKEN, account: RECIPIENT, amount: 500 }] };
+
+    const tx = await mockedNetwork(withEntries(parent, mint)).getTxData(TX_ID, TOKEN, RECIPIENT, undefined, PAYER);
+
+    expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 
   it('returns nothing when the response carries no top-level entry', async () => {
     const child = { ...nativeEntry, nonce: 1, transfers: [{ account: RECIPIENT, amount: 999 }] };
 
-    expect(await mockedNetwork(withEntries(child)).getTxData(TX_ID, '0x0', RECIPIENT)).toBeUndefined();
+    expect(await mockedNetwork(withEntries(child)).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER)).toBeUndefined();
   });
 
   it('zeroes a failed transaction but keeps its finality', async () => {
     const failed = { ...nativeEntry, result: 'INSUFFICIENT_ACCOUNT_BALANCE' };
 
-    expect(await mockedNetwork(withEntries(failed)).getTxData(TX_ID, '0x0', RECIPIENT)).toEqual({
+    expect(await mockedNetwork(withEntries(failed)).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER)).toEqual({
       from: '',
       to: '',
       token: '',
@@ -320,14 +339,14 @@ describe('getTxData native HBAR', () => {
   });
 
   it('zeroes a transaction that does not credit the recipient', async () => {
-    const tx = await mockedNetwork(withEntries(nativeEntry)).getTxData(TX_ID, '0x0', OTHER);
+    const tx = await mockedNetwork(withEntries(nativeEntry)).getTxData(TX_ID, '0x0', OTHER, undefined, PAYER);
 
     expect(tx).toEqual({ from: '', to: '', token: '', amount: 0n, confirmed: true, timestamp: 1785741962 });
   });
 
   it('returns nothing for an unknown transaction, a malformed id or an NFT', async () => {
-    expect(await mockedNetwork({}).getTxData(TX_ID, '0x0', RECIPIENT)).toBeUndefined();
-    expect(await mockedNetwork(withEntries(nativeEntry)).getTxData('0xdeadbeef', '0x0', RECIPIENT)).toBeUndefined();
+    expect(await mockedNetwork({}).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER)).toBeUndefined();
+    expect(await mockedNetwork(withEntries(nativeEntry)).getTxData('0xdeadbeef', '0x0', RECIPIENT, undefined, PAYER)).toBeUndefined();
     expect(await mockedNetwork(withEntries(nativeEntry)).getTxData(TX_ID, TOKEN, RECIPIENT, 1n)).toBeUndefined();
   });
 });
@@ -337,8 +356,8 @@ describe('getTxData by transaction hash', () => {
     const hex = mockedNetwork(withEntriesAt(NATIVE_HASH, nativeEntry));
     const base64 = mockedNetwork(withEntriesAt(BASE64_HASH, nativeEntry));
 
-    expect((await hex.getTxData(NATIVE_HASH, '0x0', RECIPIENT))?.amount).toBe(2588995597n);
-    expect((await base64.getTxData(BASE64_HASH, '0x0', RECIPIENT))?.amount).toBe(2588995597n);
+    expect((await hex.getTxData(NATIVE_HASH, '0x0', RECIPIENT, undefined, PAYER))?.amount).toBe(2588995597n);
+    expect((await base64.getTxData(BASE64_HASH, '0x0', RECIPIENT, undefined, PAYER))?.amount).toBe(2588995597n);
   });
 
   it('resolves an Ethereum hash through its contract result', async () => {
@@ -347,19 +366,19 @@ describe('getTxData by transaction hash', () => {
       ...withEntries(tokenEntry)
     });
 
-    expect((await network.getTxData(ETHEREUM_HASH, TOKEN, RECIPIENT))?.amount).toBe(21397915n);
+    expect((await network.getTxData(ETHEREUM_HASH, TOKEN, RECIPIENT, undefined, PAYER))?.amount).toBe(21397915n);
   });
 
   it('returns nothing while the contract result is not indexed yet', async () => {
     const network = mockedNetwork(withEntries(nativeEntry));
 
-    expect(await network.getTxData(ETHEREUM_HASH, '0x0', RECIPIENT)).toBeUndefined();
+    expect(await network.getTxData(ETHEREUM_HASH, '0x0', RECIPIENT, undefined, PAYER)).toBeUndefined();
   });
 });
 
 describe('getTxData HTS token', () => {
   it('reads the requested token transfer only', async () => {
-    const tx = await mockedNetwork(withEntries(tokenEntry)).getTxData(TX_ID, TOKEN, RECIPIENT);
+    const tx = await mockedNetwork(withEntries(tokenEntry)).getTxData(TX_ID, TOKEN, RECIPIENT, undefined, PAYER);
 
     expect(tx).toEqual({
       from: PAYER,
@@ -380,11 +399,11 @@ describe('getTxData HTS token', () => {
       ]
     };
 
-    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, TOKEN, RECIPIENT);
+    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, TOKEN, RECIPIENT, undefined, OTHER);
     expect(tx?.from).toBe(OTHER);
   });
 
-  it('refuses to attribute a sender when several accounts are debited', async () => {
+  it('counts only the payer share of a token credit funded by several accounts', async () => {
     const entry = {
       ...tokenEntry,
       token_transfers: [
@@ -394,8 +413,8 @@ describe('getTxData HTS token', () => {
       ]
     };
 
-    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, TOKEN, RECIPIENT);
-    expect(tx?.from).toBe('');
+    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, TOKEN, RECIPIENT, undefined, PAYER);
+    expect(tx).toMatchObject({ from: PAYER, amount: 21397900n });
   });
 
   it('refuses an amount that JSON parsing already rounded', async () => {
@@ -407,7 +426,7 @@ describe('getTxData HTS token', () => {
       ]
     };
 
-    await expect(mockedNetwork(withEntries(entry)).getTxData(TX_ID, TOKEN, RECIPIENT))
+    await expect(mockedNetwork(withEntries(entry)).getTxData(TX_ID, TOKEN, RECIPIENT, undefined, PAYER))
       .rejects.toThrow(/exceeds safe integer range/);
   });
 
@@ -436,7 +455,7 @@ describe('getTxData HTS token', () => {
       ]
     };
 
-    const tx = await mockedNetwork(withEntries(parent, settlement, approval)).getTxData(TX_ID, TOKEN, RECIPIENT);
+    const tx = await mockedNetwork(withEntries(parent, settlement, approval)).getTxData(TX_ID, TOKEN, RECIPIENT, undefined, OTHER);
 
     expect(tx).toEqual({
       from: OTHER,
@@ -449,7 +468,7 @@ describe('getTxData HTS token', () => {
   });
 
   it('zeroes a transaction that moves another token only', async () => {
-    const tx = await mockedNetwork(withEntries(tokenEntry)).getTxData(TX_ID, '0.0.9999', RECIPIENT);
+    const tx = await mockedNetwork(withEntries(tokenEntry)).getTxData(TX_ID, '0.0.9999', RECIPIENT, undefined, PAYER);
 
     expect(tx).toEqual({ from: '', to: '', token: '', amount: 0n, confirmed: true, timestamp: 1785741962 });
   });
@@ -459,7 +478,7 @@ describe('getTxData with EVM alias addresses', () => {
   it('matches the credit by the account id the recipient alias resolves to', async () => {
     const network = mockedNetwork({ ...withEntries(nativeEntry), ...withAlias(RECIPIENT_ALIAS, RECIPIENT) });
 
-    expect(await network.getTxData(TX_ID, '0x0', RECIPIENT_ALIAS)).toEqual({
+    expect(await network.getTxData(TX_ID, '0x0', RECIPIENT_ALIAS, undefined, PAYER)).toEqual({
       from: PAYER,
       to: RECIPIENT_ALIAS,
       token: '0x0',
@@ -471,20 +490,20 @@ describe('getTxData with EVM alias addresses', () => {
 
   it('matches an HTS credit by the resolved account id', async () => {
     const network = mockedNetwork({ ...withEntries(tokenEntry), ...withAlias(RECIPIENT_ALIAS, RECIPIENT) });
-    const tx = await network.getTxData(TX_ID, TOKEN, RECIPIENT_ALIAS);
+    const tx = await network.getTxData(TX_ID, TOKEN, RECIPIENT_ALIAS, undefined, PAYER);
 
     expect(tx?.amount).toBe(21397915n);
     expect(tx?.to).toBe(RECIPIENT_ALIAS);
   });
 
   it('returns nothing while the mirror node does not know the recipient alias', async () => {
-    expect(await mockedNetwork(withEntries(nativeEntry)).getTxData(TX_ID, '0x0', RECIPIENT_ALIAS)).toBeUndefined();
+    expect(await mockedNetwork(withEntries(nativeEntry)).getTxData(TX_ID, '0x0', RECIPIENT_ALIAS, undefined, PAYER)).toBeUndefined();
   });
 
   it('zeroes a transaction that credits another account than the alias', async () => {
     const network = mockedNetwork({ ...withEntries(nativeEntry), ...withAlias(RECIPIENT_ALIAS, OTHER) });
 
-    expect(await network.getTxData(TX_ID, '0x0', RECIPIENT_ALIAS)).toEqual({
+    expect(await network.getTxData(TX_ID, '0x0', RECIPIENT_ALIAS, undefined, PAYER)).toEqual({
       from: '',
       to: '',
       token: '',
@@ -500,21 +519,73 @@ describe('getTxData with EVM alias addresses', () => {
     expect((await network.getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER_ALIAS))?.from).toBe(PAYER_ALIAS);
   });
 
-  it('keeps the native sender when the declared payer resolves to another account', async () => {
+  it('refuses when the declared payer resolves to another account', async () => {
     const other = mockedNetwork({ ...withEntries(nativeEntry), ...withAlias(PAYER_ALIAS, OTHER) });
-    expect((await other.getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER_ALIAS))?.from).toBe(PAYER);
+    expect((await other.getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER_ALIAS))?.from).toBe('');
   });
 
-  it('keeps the native sender when the declared payer alias has no account', async () => {
+  it('refuses when the declared payer alias has no account', async () => {
     const unknown = mockedNetwork(withEntries(nativeEntry));
-    expect((await unknown.getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER_ALIAS))?.from).toBe(PAYER);
+    expect((await unknown.getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER_ALIAS))?.from).toBe('');
   });
 
-  it('still refuses to attribute an ambiguous sender to the declared payer', async () => {
+  it('credits the declared payer only with what another debit cannot have covered', async () => {
     const entry = { ...nativeEntry, transfers: [...nativeEntry.transfers, { account: OTHER, amount: -100 }] };
     const network = mockedNetwork({ ...withEntries(entry), ...withAlias(PAYER_ALIAS, PAYER) });
 
-    expect((await network.getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER_ALIAS))?.from).toBe('');
+    expect(await network.getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER_ALIAS)).toMatchObject({ from: PAYER_ALIAS, amount: 2588995497n });
+  });
+
+  it('refuses the declared payer when a third party funded the recipient', async () => {
+    const entry = {
+      ...nativeEntry,
+      transfers: [
+        { account: RECIPIENT, amount: 1000 },
+        { account: OTHER, amount: -1000 },
+        { account: PAYER, amount: -1000 },
+        { account: '0.0.4400004', amount: 1000 }
+      ]
+    };
+
+    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER);
+
+    expect(tx?.from).toBe('');
+  });
+
+  it('does not count a staking reward payout against the declared payer', async () => {
+    const entry = {
+      ...nativeEntry,
+      transfers: [
+        { account: RECIPIENT, amount: 1000000 },
+        { account: PAYER, amount: -1000000 + 500 },
+        { account: OTHER, amount: -100 },
+        { account: '0.0.4400004', amount: 100 },
+        { account: '0.0.800', amount: -500 }
+      ],
+      staking_reward_transfers: [{ account: PAYER, amount: 500 }]
+    };
+
+    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER);
+
+    expect(tx).toMatchObject({ from: PAYER, amount: 1000000n - 100n });
+  });
+
+  it('attributes the declared payer when a separate account paid the network fee', async () => {
+    const entry = {
+      ...nativeEntry,
+      transaction_id: `${OTHER}-1785741956-431173749`,
+      charged_tx_fee: 144403,
+      transfers: [
+        { account: '0.0.802', amount: 144403 },
+        { account: RECIPIENT, amount: 1000000 },
+        { account: PAYER, amount: -1000000 },
+        { account: OTHER, amount: -144403 }
+      ]
+    };
+
+    const tx = await mockedNetwork(withEntries(entry)).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER);
+
+    expect(tx).toMatchObject({ from: PAYER, amount: 1000000n });
   });
 
   it('does not ask the mirror node about addresses that are already native ids', async () => {

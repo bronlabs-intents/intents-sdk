@@ -1,10 +1,10 @@
 import { Metadata, TypeRegistry } from '@polkadot/types';
-import { hexToU8a, isHex, u8aEq, u8aToBigInt } from '@polkadot/util';
+import { hexToU8a, isHex, u8aEq, u8aToBigInt, u8aToHex } from '@polkadot/util';
 import { blake2AsHex, decodeAddress, encodeAddress } from '@polkadot/util-crypto';
 
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifyEd25519 } from '../attestation.js';
-import { log } from '../utils.js';
+import { log, paymentFlow, settlement, Transfer as FlowEdge } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 
 const SS58_PREFIX = 42;
@@ -36,15 +36,6 @@ interface ExtrinsicOutcome {
   failed: boolean;
   transfers: Transfer[];
 }
-
-const failed = (timestamp: number): TransactionData => ({
-  from: '',
-  to: '',
-  token: '',
-  amount: 0n,
-  confirmed: true,
-  timestamp
-});
 
 export function taoAccountId(address: string): Uint8Array | undefined {
   if (!address || isHex(address)) {
@@ -101,17 +92,17 @@ export class TaoNetwork implements Network, AttestationCapable {
     txHash: string,
     tokenAddress: string,
     recipientAddress: string,
-    _tokenId?: bigint,
-    senderAddress?: string,
+    _tokenId: bigint | undefined,
+    senderAddress: string,
     notBefore?: number
   ): Promise<TransactionData | undefined> {
     const hash = txHash.toLowerCase();
     const recipient = taoAccountId(recipientAddress);
-    const sender = taoAccountId(senderAddress ?? '');
+    const sender = taoAccountId(senderAddress);
 
     if (tokenAddress !== '0x0' || !TX_HASH.test(hash) || !recipient || !sender) {
       log.warn(`TAO tx ${txHash} rejected: token ${tokenAddress}, recipient ${recipientAddress}, sender ${senderAddress}`);
-      return failed(0);
+      return settlement('', '', '', 0n, true, 0);
     }
 
     const location = await this.locate(hash, notBefore);
@@ -127,24 +118,17 @@ export class TaoNetwork implements Network, AttestationCapable {
 
     if (outcome.failed) {
       log.warn(`TAO tx ${txHash} failed on chain in block ${location.blockHash}`);
-      return failed(timestamp);
+      return settlement('', '', '', 0n, true, timestamp);
     }
 
-    const transfers = outcome.transfers.filter(t => u8aEq(t.to, recipient) && u8aEq(t.from, sender));
+    const transfers = outcome.transfers.map((t): FlowEdge => [u8aToHex(t.from), u8aToHex(t.to), t.amount]);
+    const paid = paymentFlow(transfers, u8aToHex(sender), u8aToHex(recipient));
 
-    if (transfers.length !== 1) {
-      log.warn(`TAO tx ${txHash} has ${transfers.length} transfers from ${senderAddress} to ${recipientAddress}`);
-      return failed(timestamp);
+    if (paid === 0n) {
+      log.warn(`TAO tx ${txHash} moves nothing from ${senderAddress} to ${recipientAddress}`);
     }
 
-    return {
-      from: senderAddress!,
-      to: recipientAddress,
-      token: tokenAddress,
-      amount: transfers[0].amount,
-      confirmed: true,
-      timestamp
-    };
+    return settlement(senderAddress, recipientAddress, tokenAddress, paid, true, timestamp);
   }
 
   async transfer(): Promise<string> {

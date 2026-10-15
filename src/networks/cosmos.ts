@@ -1,6 +1,6 @@
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
-import { log } from '../utils.js';
+import { log, paymentFlow, settlement, Transfer } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { GasPrice, SigningStargateClient } from '@cosmjs/stargate';
@@ -25,7 +25,6 @@ export class CosmosNetwork implements Network, AttestationCapable {
     this.bech32 = bech32
   }
 
-  // bech32(prefix, ripemd160(sha256(compressed secp256k1 pubkey))) — standard Cosmos account address.
   addressFromPublicKey(publicKey: string): string {
     const compressed = ethers.getBytes(ethers.SigningKey.computePublicKey(publicKey, true));
     const sha = ethers.getBytes(ethers.sha256(compressed));
@@ -64,7 +63,7 @@ export class CosmosNetwork implements Network, AttestationCapable {
     return 0;
   }
 
-  async getTxData(txHash: string, tokenAddress: string, recipientAddress: string): Promise<TransactionData | undefined> {
+  async getTxData(txHash: string, tokenAddress: string, recipientAddress: string, _tokenId: bigint | undefined, senderAddress: string): Promise<TransactionData | undefined> {
     const result = await this.rpcGet('tx', { hash: `0x${txHash}`, prove: 'false' });
 
     if (!result || !result.tx_result) {
@@ -74,14 +73,7 @@ export class CosmosNetwork implements Network, AttestationCapable {
     if (result.tx_result.code !== 0) {
       log.warn(`Transaction ${txHash} failed on blockchain: code=${result.tx_result.code}`);
 
-      return {
-        from: "",
-        to: "",
-        token: "",
-        amount: 0n,
-        confirmed: false,
-        timestamp: 0
-      }
+      return settlement("", "", "", 0n, false, 0)
     }
 
     let denom = tokenAddress;
@@ -89,31 +81,11 @@ export class CosmosNetwork implements Network, AttestationCapable {
       denom = this.nativeDenom;
     }
 
-    // A single transfer event can carry several (recipient, sender, amount) triples (multisend /
-    // fan-out), so parse ordered triples and require EXACTLY ONE matching recipient+denom — otherwise
-    // `from` is ambiguous and the attester could point at a payment they didn't originate.
-    const matches = (result.tx_result.events || [])
+    const transfers: Transfer[] = (result.tx_result.events as any[] ?? [])
       .filter((e: any) => e.type === 'transfer')
       .flatMap((e: any) => this.parseTransferTriples(e.attributes))
-      .filter((t: any) =>
-        t.recipient?.toLowerCase() === recipientAddress?.toLowerCase() &&
-        this.parseDenomAmount(t.amount || '', denom) !== null
-      );
-
-    if (matches.length !== 1) {
-      log.warn(`Transaction ${txHash} has ${matches.length} transfers of ${denom} to ${recipientAddress} (expected exactly 1)`);
-
-      return {
-        from: "",
-        to: "",
-        token: "",
-        amount: 0n,
-        confirmed: false,
-        timestamp: 0
-      }
-    }
-
-    const transfer = matches[0];
+      .filter(t => t.sender && t.recipient)
+      .map((t): Transfer => [t.sender!.toLowerCase(), t.recipient!.toLowerCase(), this.parseDenomAmount(t.amount || '', denom) ?? 0n]);
 
     const blockResult = await this.rpcGet('block');
     const currentBlock = parseInt(blockResult.block.header.height);
@@ -127,19 +99,15 @@ export class CosmosNetwork implements Network, AttestationCapable {
     const blockTime = txBlockResult?.block?.header?.time;
     const timestamp = blockTime ? Math.floor(Date.parse(blockTime) / 1000) : 0;
 
-    return {
-      from: transfer.sender || '',
-      to: transfer.recipient || '',
-      token: tokenAddress,
-      amount: this.parseDenomAmount(transfer.amount || '', denom)!,
-      confirmed,
-      timestamp
+    const paid = paymentFlow(transfers, senderAddress.toLowerCase(), recipientAddress.toLowerCase());
+
+    if (paid === 0n) {
+      log.warn(`Transaction ${txHash} moves no ${denom} from ${senderAddress} to ${recipientAddress}`);
     }
+
+    return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, timestamp);
   }
 
-  /**
-   * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.
-   */
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string) {
     const wallet = await DirectSecp256k1Wallet.fromKey(Buffer.from(privateKey, 'hex'), this.bech32);
     const [account] = await wallet.getAccounts();

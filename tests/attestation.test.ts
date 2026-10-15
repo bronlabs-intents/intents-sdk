@@ -21,6 +21,7 @@ import {
   verifySettlementProof,
 } from '../src/attestation.js';
 import { CantonNetwork } from '../src/networks/canton.js';
+import { BronCantonNetwork } from '../src/networks/bron-canton.js';
 import { EvmNetwork } from '../src/networks/evm.js';
 import { TrxNetwork } from '../src/networks/trx.js';
 import { XrpNetwork } from '../src/networks/xrp.js';
@@ -72,26 +73,28 @@ test('non-EVM counterparty passes through verbatim (case-sensitive)', () => {
   expect(a).not.toEqual(b);
 });
 
-// Canton sigBound matches only the namespace-fingerprint half of the party-id — the hint half is
-// free-form and not key-derivable. The pinned vector (1220 + sha256(0x0000000C || pubkey)) is the
-// cross-implementation contract with the signer-side party derivation.
-test('canton: fingerprint-based sigBound', async () => {
-  const net = new CantonNetwork('http://127.0.0.1:1');
+const cantonNetworks = [
+  { name: 'CantonNetwork', create: () => new CantonNetwork('http://127.0.0.1:1') },
+  { name: 'BronCantonNetwork', create: () => new BronCantonNetwork('CC', 'http://127.0.0.1:1', 'key') }
+];
+
+test.each(cantonNetworks)('canton: fingerprint-based sigBound ($name)', async ({ create }) => {
+  const net = create();
   expect(isAttestationCapable(net)).toBe(true);
 
   const pub = '0x' + '11'.repeat(32);
   const fp = '12200205734e0ef4afadcf3873cafbb4b8954912a4eb6c11123340ab170e4302e477';
   expect(net.addressFromPublicKey(pub)).toBe(fp);
-  expect(net.addressFromPublicKey('11'.repeat(32).toUpperCase())).toBe(fp); // bare uppercase hex (Canton convention)
+  expect(net.addressFromPublicKey('11'.repeat(32).toUpperCase())).toBe(fp);
 
   expect(await attestationKeyMatchesAddress(net, pub, `bron::${fp}`)).toBe(true);
-  expect(await attestationKeyMatchesAddress(net, pub, `other-hint::${fp.toUpperCase()}`)).toBe(true); // hint-agnostic, case-insensitive
-  expect(await attestationKeyMatchesAddress(net, pub, fp)).toBe(false); // bare fingerprint is not a party-id
+  expect(await attestationKeyMatchesAddress(net, pub, `other-hint::${fp.toUpperCase()}`)).toBe(true);
+  expect(await attestationKeyMatchesAddress(net, pub, fp)).toBe(false);
   expect(await attestationKeyMatchesAddress(net, pub, `bron::1220${'0'.repeat(64)}`)).toBe(false);
 });
 
-test('canton: ed25519 attestation round-trip', async () => {
-  const net = new CantonNetwork('http://127.0.0.1:1');
+test.each(cantonNetworks)('canton: ed25519 attestation round-trip ($name)', async ({ create }) => {
+  const net = create();
   const priv = ed25519.utils.randomSecretKey();
   const pub = ethers.hexlify(await ed25519.getPublicKeyAsync(priv));
   const preimage = buildAttestationPreimage(params);

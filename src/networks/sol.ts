@@ -5,11 +5,38 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from "./index.js";
 import { AttestationCapable, SignatureScheme, verifyEd25519 } from '../attestation.js';
-import { log, memoize } from "../utils.js";
+import { addDelta, log, memoize, provableContribution, sameAddress, settlement, UNATTRIBUTED } from "../utils.js";
 import { proxyFetch } from '../proxy.js';
 
-const sumTokenAmounts = (balances: any[]): bigint =>
-  balances.reduce((total: bigint, balance: any) => total + BigInt(balance.uiTokenAmount.amount), 0n);
+const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
+
+function tokenDeltasByOwner(preTokenBalances: any[], postTokenBalances: any[]): Map<string, bigint> {
+  const accounts = new Map<number, { owner?: string; delta: bigint }>();
+
+  for (const [balances, sign] of [[preTokenBalances, -1n], [postTokenBalances, 1n]] as const) {
+    for (const balance of balances) {
+      const account = accounts.get(balance.accountIndex) ?? { delta: 0n };
+
+      account.owner = account.owner ?? balance.owner;
+      account.delta += sign * BigInt(balance.uiTokenAmount.amount);
+      accounts.set(balance.accountIndex, account);
+    }
+  }
+
+  const deltas = new Map<string, bigint>();
+
+  for (const [accountIndex, { owner, delta }] of accounts) {
+    addDelta(deltas, owner ?? `account-${accountIndex}`, delta);
+  }
+
+  const supplyChange = [...deltas.values()].reduce((total, delta) => total + delta, 0n);
+
+  if (supplyChange > 0n) {
+    addDelta(deltas, UNATTRIBUTED, -supplyChange);
+  }
+
+  return deltas;
+}
 
 export class SolNetwork implements Network, AttestationCapable {
   private readonly rpcUrl: string;
@@ -68,7 +95,9 @@ export class SolNetwork implements Network, AttestationCapable {
   async getTxData(
     txHash: string,
     tokenAddress: string,
-    recipientAddress: string
+    recipientAddress: string,
+    _tokenId: bigint | undefined,
+    senderAddress: string
   ): Promise<TransactionData | undefined> {
     const currentBlock = await proxyFetch(this.rpcUrl, {
       method: 'POST',
@@ -107,157 +136,58 @@ export class SolNetwork implements Network, AttestationCapable {
     if (result.meta?.err) {
       log.warn(`Transaction ${txHash} failed on blockchain: ${result}`);
 
-      return {
-        from: "",
-        to: "",
-        token: "",
-        amount: 0n,
-        confirmed,
-        timestamp
-      };
+      return settlement("", "", "", 0n, confirmed, timestamp);
     }
 
     log.info(`Confirmations ${txHash}: ${currentBlock - blockNumber}`);
 
-    // `from` must be the account that actually FUNDED the transfer, not accountKeys[0] (the fee
-    // payer). Returning the fee payer lets an attacker fund a settlement from an address they don't
-    // control while signing with a throwaway fee payer that derives to the declared orderFrom —
-    // the oracle's senderValid would then check the wrong account.
-    const accountKeys: string[] = result.transaction.message.accountKeys;
-    const numSigners: number = result.transaction.message.header?.numRequiredSignatures ?? 1;
-    const isSigner = (i: number) => i < numSigners;
+    const accountKeys: string[] = [
+      ...result.transaction.message.accountKeys,
+      ...(result.meta.loadedAddresses?.writable ?? []),
+      ...(result.meta.loadedAddresses?.readonly ?? [])
+    ];
 
     if (tokenAddress === "0x0") {
-      const idx = accountKeys.findIndex((key: string) => key === recipientAddress);
-
-      if (idx === -1) {
-        return {
-          from: "",
-          to: "",
-          token: "",
-          amount: 0n,
-          confirmed,
-          timestamp
-        };
-      }
-
-      const amount = BigInt(result.meta.postBalances[idx]) - BigInt(result.meta.preBalances[idx]);
-
-      // funder = a signing account (other than the recipient) whose lamports dropped by at least the
-      // credited amount. Attribution must be unambiguous: with several qualifying signers we cannot
-      // tell which one funded the transfer, so fail closed (empty from → senderValid fails).
-      const funders: string[] = [];
-      for (let i = 0; i < accountKeys.length; i++) {
-        if (i === idx || !isSigner(i)) {
-          continue;
-        }
-        const decrease = BigInt(result.meta.preBalances[i]) - BigInt(result.meta.postBalances[i]);
-        if (decrease >= amount) {
-          funders.push(accountKeys[i]);
-        }
-      }
-
-      const from = funders.length === 1 ? funders[0] : "";
-
-      return {
-        from,
-        to: accountKeys[idx],
-        token: tokenAddress,
-        amount,
-        confirmed,
-        timestamp
-      };
+      return settlement(senderAddress, recipientAddress, tokenAddress, this.nativeContribution(result.meta, accountKeys, senderAddress, recipientAddress), confirmed, timestamp);
     }
 
-    // ERC20 token
-    const postTokenBalances = result.meta.postTokenBalances.filter((balance: any) => balance.mint === tokenAddress)
-    const preTokenBalances = result.meta.preTokenBalances.filter((balance: any) => balance.mint === tokenAddress)
+    const deltas = tokenDeltasByOwner(
+      result.meta.preTokenBalances.filter((balance: any) => balance.mint === tokenAddress),
+      result.meta.postTokenBalances.filter((balance: any) => balance.mint === tokenAddress)
+    );
 
-    const senderAddress = (() => {
-      for (const postBalance of postTokenBalances) {
-        const preBalance = preTokenBalances.find((balance: any) =>
-          balance.owner === postBalance.owner
-        );
+    const payers = new Set([...deltas.keys()].filter(owner => sameAddress(owner, senderAddress)));
+    const paid = provableContribution(deltas, payers, recipientAddress);
 
-        if (preBalance && BigInt(postBalance.uiTokenAmount.amount) < BigInt(preBalance.uiTokenAmount.amount)) {
-          return preBalance.owner;
-        }
-      }
-
-      return "";
-    })();
-
-    const postTokenBalanceOfReceiver = postTokenBalances.find((balance: any) => balance.owner === recipientAddress)
-    const preTokenBalanceOfReceiver = preTokenBalances.find((balance: any) => balance.owner === recipientAddress)
-
-    if (!postTokenBalanceOfReceiver) {
-      return {
-        from: "",
-        to: "",
-        token: "",
-        amount: 0n,
-        confirmed,
-        timestamp
-      };
-    }
-
-    let preBalance = 0n
-    if (preTokenBalanceOfReceiver?.uiTokenAmount.amount) {
-      preBalance = BigInt(preTokenBalanceOfReceiver.uiTokenAmount.amount)
-    }
-
-    const credited = BigInt(postTokenBalanceOfReceiver.uiTokenAmount.amount) - preBalance;
-
-    if (!senderAddress) {
-      // A mint credits without debiting, so this mint's balances net positive across the tx while a
-      // transfer nets to zero — that is what separates it from a sender we simply could not attribute.
-      const minted = sumTokenAmounts(postTokenBalances) - sumTokenAmounts(preTokenBalances) > 0n;
-
-      if (!minted) {
-        return {
-          from: "",
-          to: "",
-          token: "",
-          amount: 0n,
-          confirmed,
-          timestamp
-        };
-      }
-
-      return {
-        from: "",
-        to: postTokenBalanceOfReceiver.owner,
-        token: postTokenBalanceOfReceiver.mint,
-        amount: credited,
-        confirmed,
-        timestamp,
-        envelopeFrom: accountKeys[0]
-      };
-    }
-
-    // `from` is the token-account owner whose balance dropped (computed above), required to be a
-    // signer of the tx — not accountKeys[0]. A non-signing funder means we can't bind the payment to
-    // the attester, so reject (empty from → senderValid fails).
-    const senderIsSigner = accountKeys.slice(0, numSigners).includes(senderAddress);
-
-    return {
-      from: senderIsSigner ? senderAddress : "",
-      to: postTokenBalanceOfReceiver.owner,
-      token: postTokenBalanceOfReceiver.mint,
-      amount: credited,
-      confirmed,
-      timestamp
-    };
+    return paid > 0n
+      ? settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, timestamp)
+      : settlement("", recipientAddress, tokenAddress, provableContribution(deltas, new Set([...payers, UNATTRIBUTED]), recipientAddress), confirmed, timestamp, { envelopeFrom: accountKeys[0] });
   }
 
-  /**
-   * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.
-   */
+  private nativeContribution(meta: any, accountKeys: string[], senderAddress: string, recipientAddress: string): bigint {
+    const deltas = new Map<string, bigint>();
+
+    accountKeys.forEach((key, i) => addDelta(deltas, key, BigInt(meta.postBalances[i]) - BigInt(meta.preBalances[i])));
+    addDelta(deltas, accountKeys[0], BigInt(meta.fee ?? 0));
+
+    const payers = new Set(accountKeys.filter(key => sameAddress(key, senderAddress)));
+    const ownedBy = (balance: any) => !!balance?.owner && sameAddress(balance.owner, senderAddress);
+
+    for (const pre of (meta.preTokenBalances ?? []).filter((balance: any) => balance.mint === WRAPPED_SOL_MINT)) {
+      const post = (meta.postTokenBalances ?? []).find((balance: any) => balance.accountIndex === pre.accountIndex);
+
+      if (ownedBy(pre) && (!post || ownedBy(post))) {
+        payers.add(accountKeys[pre.accountIndex]);
+      }
+    }
+
+    return provableContribution(deltas, payers, recipientAddress);
+  }
+
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {
     const keypair = this.base58ToKeypair(privateKey);
 
     if (tokenAddress === "0x0") {
-      // Send SOL (native token)
       const transaction = new Transaction().add(
         SystemProgram.transfer({
           fromPubkey: keypair.publicKey,

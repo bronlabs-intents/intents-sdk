@@ -3,6 +3,7 @@ import { HttpClient } from '@bronlabs/bron-sdk/utils';
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme } from '../attestation.js';
 import { proxyFetch } from '../proxy.js';
+import { settlement } from '../utils.js';
 import {
   cantonAddressFromPublicKey,
   cantonMatchesAddress,
@@ -53,7 +54,7 @@ export class BronCantonNetwork implements Network, AttestationCapable {
     return cantonTokenDecimals(this.daUtilitiesApiUrl, tokenAddress);
   }
 
-  async getTxData(txHash: string, tokenAddress: string, _recipientAddress: string, tokenId?: bigint): Promise<TransactionData | undefined> {
+  async getTxData(txHash: string, tokenAddress: string, _recipientAddress: string, tokenId: bigint | undefined, senderAddress: string): Promise<TransactionData | undefined> {
     let tx: BronCantonTx;
 
     try {
@@ -69,15 +70,9 @@ export class BronCantonNetwork implements Network, AttestationCapable {
       throw e;
     }
 
-    return {
-      from: tx.fromAddress,
-      to: tx.toAddress,
-      token: tx.tokenAddress,
-      tokenId,
-      amount: BigInt(tx.amount),
-      confirmed: tx.completed,
-      timestamp: tx.completedAt != null ? Math.floor(tx.completedAt / 1000) : 0
-    };
+    const paid = tx.fromAddress === senderAddress ? BigInt(tx.amount) : 0n;
+
+    return settlement(senderAddress, tx.toAddress, tx.tokenAddress, paid, tx.completed, tx.completedAt != null ? Math.floor(tx.completedAt / 1000) : 0, { tokenId });
   }
 
   async transfer(): Promise<string> {

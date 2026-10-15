@@ -2,7 +2,7 @@ import * as ed25519 from '@noble/ed25519';
 
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme } from '../attestation.js';
-import { log, expRetry } from '../utils.js';
+import { log, expRetry, memoize, settlement } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 import { Big } from 'big.js';
 import { ethers } from 'ethers';
@@ -76,7 +76,16 @@ export class CantonNetwork implements Network, AttestationCapable {
     return cantonTokenDecimals(this.daUtilitiesApiUrl, tokenAddress);
   }
 
-  async getTxData(txHash: string, tokenAddress: string): Promise<TransactionData | undefined> {
+  async getTxData(
+    txHash: string,
+    tokenAddress: string,
+    recipientAddress: string,
+    _tokenId: bigint | undefined,
+    senderAddress: string
+  ): Promise<TransactionData | undefined> {
+    const credit = (from: string, to: string, token: string, amount: bigint, timestamp: number) =>
+      settlement(senderAddress, recipientAddress, tokenAddress, from === senderAddress && to === recipientAddress && token === tokenAddress ? amount : 0n, true, timestamp);
+
     const updateId = txHash.split(':')[0];
 
     const baseEventFormat = {
@@ -133,18 +142,10 @@ export class CantonNetwork implements Network, AttestationCapable {
     if (!isSuccess) {
       log.error(`Transaction ${txHash} failed: ${(transferFactoryResultTag ?? 'Unknown')}`);
 
-      return {
-        from: "",
-        to: "",
-        token: "",
-        amount: 0n,
-        confirmed: false,
-        timestamp
-      };
+      return settlement("", "", "", 0n, false, timestamp);
     }
 
     if (tokenAddress === '0x0') {
-      // Legacy pre-0.5.16: fall back to root AmuletRules_Transfer
       const transfer: any = events.find(e => e.ExercisedEvent?.choice === 'AmuletRules_Transfer');
       if (transfer != null) {
 
@@ -156,16 +157,8 @@ export class CantonNetwork implements Network, AttestationCapable {
         const from = transfer?.ExercisedEvent?.choiceArgument?.transfer?.sender || "";
         const amount = BigInt(Big(output.amount).mul(Big(10).pow(this.nativeAssetDecimals)).toFixed(0));
 
-        return {
-          from,
-          to: output.receiver,
-          token: tokenAddress,
-          amount,
-          confirmed: true,
-          timestamp
-        };
+        return credit(from, output.receiver, tokenAddress, amount, timestamp);
       } else {
-        // after 0.5.16
         const arg = transferFactoryEvent.ExercisedEvent?.choiceArgument?.transfer;
 
         if (!arg) {
@@ -174,18 +167,11 @@ export class CantonNetwork implements Network, AttestationCapable {
 
         const amount = BigInt(Big(arg.amount).mul(Big(10).pow(this.nativeAssetDecimals)).toFixed(0));
 
-        return {
-          from: arg.sender,
-          to: arg.receiver,
-          token: tokenAddress,
-          amount,
-          confirmed: true,
-          timestamp
-        };
+        const isAmulet = arg.instrumentId?.id === 'Amulet' && arg.instrumentId?.admin === await this.dsoParty();
+
+        return credit(arg.sender, arg.receiver, isAmulet ? tokenAddress : '', amount, timestamp);
       }
     }
-
-    // tokens
 
     const arg = transferFactoryEvent?.ExercisedEvent?.choiceArgument?.transfer;
     const resultOutput = transferFactoryEvent?.ExercisedEvent?.exerciseResult?.output;
@@ -202,14 +188,7 @@ export class CantonNetwork implements Network, AttestationCapable {
         throw new Error(`Transaction ${txHash} has token TransferInstructionResult_Completed but no transfer args: ${JSON.stringify(txValue)}`);
       }
 
-      return {
-        from: sender,
-        to: receiver,
-        token: txTokenAddress,
-        amount: ethers.parseUnits(amount, tokenDecimals),
-        confirmed: true,
-        timestamp
-      };
+      return credit(sender, receiver, txTokenAddress, ethers.parseUnits(amount, tokenDecimals), timestamp);
     }
 
     const eventsByContract = await this.nodeRequest({
@@ -259,31 +238,14 @@ export class CantonNetwork implements Network, AttestationCapable {
     }
 
     if (tokenResultTag === "TransferInstructionResult_Completed") {
-      return {
-        from: sender,
-        to: receiver,
-        token: txTokenAddress,
-        amount: ethers.parseUnits(amount, tokenDecimals),
-        confirmed: true,
-        timestamp
-      };
+      return credit(sender, receiver, txTokenAddress, ethers.parseUnits(amount, tokenDecimals), timestamp);
     } else {
       log.error(`Transaction ${txHash} has wrong tokenResultTag: ${tokenResultTag}`);
 
-      return {
-        from: "",
-        to: "",
-        token: "",
-        amount: 0n,
-        confirmed: true,
-        timestamp
-      };
+      return settlement("", "", "", 0n, true, timestamp);
     }
   }
 
-  /**
-   * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.
-   */
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {
     if (tokenAddress != '0x0') {
       throw new Error("Canton does not support tokens");
@@ -357,6 +319,12 @@ export class CantonNetwork implements Network, AttestationCapable {
 
       return `${update_id}:${transferCommandCid}`;
     }, 10);
+  }
+
+  private dsoParty(): Promise<string> {
+    return memoize(`canton-dso-party-${this.validatorApiUrl}`, 86_400_000, async () =>
+      (await this.nodeRequest({ method: 'GET', uri: '/v0/scan-proxy/dso-party-id' })).dso_party_id
+    );
   }
 
   private async buildIdentifierFilter(opts: {

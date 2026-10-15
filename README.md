@@ -105,6 +105,16 @@ interface NetworkConfig {
 }
 ```
 
+### Settlement verification RPC requirements
+
+`getTxData` credits the expected payer with what actually reached the recipient from it inside the transaction, so a native settlement is read from the transaction's internal transfers:
+
+- EVM networks: the RPC must serve `debug_traceTransaction` with the `callTracer`, with state for recent blocks.
+- TON: the indexer must serve `/v3/traces` and `/v3/runGetMethod`.
+- TRON: the node must run with `vm.saveInternalTx = true`, or TRX paid through a contract is not credited.
+
+`ping()` checks the EVM and TON requirements, so an oracle does not subscribe to a network whose RPC lacks them. The TRON setting cannot be detected from outside.
+
 ## Error Handling
 
 The SDK includes built-in retry mechanisms and error handling:
