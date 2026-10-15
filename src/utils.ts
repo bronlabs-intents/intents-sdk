@@ -185,6 +185,28 @@ export function paymentFlow(transfers: Transfer[], payer: string, recipient: str
   return flow < recipientGain ? flow : recipientGain;
 }
 
+export async function expRetry<T>(fn: () => Promise<T>, maxRetries: number = 3, retryIf: (e: Error) => boolean = () => true): Promise<T> {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (attempt === maxRetries) throw error;
+
+      if (error instanceof Error && retryIf(error)) {
+        log.warn(`Retry attempt #${attempt + 1}: ${error.message}`);
+
+        const delay = Math.pow(2, attempt) * 3000;
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+
+      throw error;
+    }
+  }
+
+  throw Error(`Retry failed: maxRetries=${maxRetries}`);
+}
+
 type MemoEntry = { value?: unknown; expiresAt: number; promise?: Promise<unknown> };
 
 const __memoCache = new Map<string, MemoEntry>();
