@@ -119,7 +119,7 @@ describe('SolNetwork.getTxData', () => {
       return Promise.resolve({ json: () => Promise.resolve(body) }) as any;
     });
 
-    const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', MINT, RECEIVER);
+    const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', MINT, RECEIVER, undefined, SENDER);
 
     expect(tx).toMatchObject({ from: SENDER, to: RECEIVER, token: MINT, amount: 600n, confirmed: true });
   });
@@ -135,7 +135,7 @@ describe('SolNetwork.getTxData', () => {
       return Promise.resolve({ json: () => Promise.resolve(body) }) as any;
     });
 
-    await expect(new SolNetwork('http://rpc', 10).getTxData('sig', MINT, RECEIVER)).rejects.toThrow('-32015');
+    await expect(new SolNetwork('http://rpc', 10).getTxData('sig', MINT, RECEIVER, undefined, SENDER)).rejects.toThrow('-32015');
   });
 });
 
