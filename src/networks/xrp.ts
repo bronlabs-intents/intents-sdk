@@ -5,10 +5,28 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
-import { log } from '../utils.js';
+import { addDelta, log, provableContribution, settlement } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 
 const DEFAULT_ISSUED_CURRENCY_DECIMALS = 15;
+const RIPPLE_EPOCH_OFFSET = 946684800;
+
+type NodeKind = 'CreatedNode' | 'ModifiedNode' | 'DeletedNode';
+
+const affectedNodes = (meta: any, ledgerEntryType: string): [NodeKind, any][] =>
+  (meta.AffectedNodes ?? [])
+    .map((node: any) => Object.entries(node)[0] as [NodeKind, any])
+    .filter(([, entry]: [NodeKind, any]) => entry?.LedgerEntryType === ledgerEntryType);
+
+function balanceChange(kind: NodeKind, entry: any, read: (fields: any) => bigint | undefined): bigint {
+  const previous = kind === 'CreatedNode' ? 0n : read(entry.PreviousFields) ?? (kind === 'DeletedNode' ? read(entry.FinalFields) : undefined);
+
+  if (previous === undefined) {
+    return 0n;
+  }
+
+  return (kind === 'DeletedNode' ? 0n : read(entry.FinalFields ?? entry.NewFields) ?? 0n) - previous;
+}
 
 export class XrpNetwork implements Network, AttestationCapable {
   private readonly rpcUrl: string;
@@ -31,7 +49,6 @@ export class XrpNetwork implements Network, AttestationCapable {
     this.confirmations = confirmations;
   }
 
-  // XRP classic address from a secp256k1 public key (compressed, uppercase hex — the XRPL form).
   addressFromPublicKey(publicKey: string): string {
     return deriveAddress(ethers.SigningKey.computePublicKey(publicKey, true).slice(2).toUpperCase());
   }
@@ -55,20 +72,13 @@ export class XrpNetwork implements Network, AttestationCapable {
   async getTxData(
     txHash: string,
     tokenAddress: string,
-    recipientAddress: string
+    recipientAddress: string,
+    _tokenId: bigint | undefined,
+    senderAddress: string
   ): Promise<TransactionData | undefined> {
     const result = await this.rpcCall('tx', { transaction: txHash, binary: false });
 
-    if (!result || result.error || result.status === 'error') {
-      return;
-    }
-
-    if (result.TransactionType !== 'Payment') {
-      log.warn(`Transaction ${txHash} is not a Payment: ${result.TransactionType}`);
-      return;
-    }
-
-    if (!result.validated) {
+    if (!result || result.error || result.status === 'error' || !result.validated) {
       return;
     }
 
@@ -76,77 +86,60 @@ export class XrpNetwork implements Network, AttestationCapable {
 
     const currentLedger = await this.getCurrentValidatedLedger();
     const confirmed = currentLedger - result.ledger_index >= this.confirmations;
-    // result.date is the ledger close time in the Ripple epoch (seconds since 2000-01-01); shift to unix.
-    const timestamp = typeof result.date === 'number' ? result.date + 946684800 : 0;
-
-    if (!meta || meta.TransactionResult !== 'tesSUCCESS') {
-      log.warn(`Transaction ${txHash} failed: ${meta?.TransactionResult}`);
-      return { from: "", to: "", token: "", amount: 0n, confirmed, timestamp };
-    }
-
-    if (result.Destination !== recipientAddress) {
-      log.warn(`Transaction ${txHash} destination ${result.Destination} does not match ${recipientAddress}`);
-      return { from: "", to: "", token: "", amount: 0n, confirmed, timestamp };
-    }
-
-    const deliveredAmount = meta.delivered_amount;
-
-    if (deliveredAmount === undefined || deliveredAmount === null) {
-      log.warn(`Transaction ${txHash} has no delivered_amount`);
-      return;
-    }
+    const timestamp = typeof result.date === 'number' ? result.date + RIPPLE_EPOCH_OFFSET : 0;
 
     log.info(`Confirmations ${txHash}: ${currentLedger - result.ledger_index}`);
 
-    if (tokenAddress === "0x0") {
-      if (typeof deliveredAmount !== 'string') {
-        log.warn(`Transaction ${txHash} native delivered_amount is not a string: ${typeof deliveredAmount}`);
-        return;
-      }
-
-      return {
-        from: result.Account,
-        to: result.Destination,
-        token: tokenAddress,
-        amount: BigInt(deliveredAmount),
-        confirmed,
-        timestamp
-      };
+    if (!meta || meta.TransactionResult !== 'tesSUCCESS' || result.TransactionType !== 'Payment' || result.Account !== senderAddress) {
+      log.warn(`Transaction ${txHash} is not a successful Payment signed by ${senderAddress}: ${result.TransactionType} ${meta?.TransactionResult} ${result.Account}`);
+      return settlement("", "", "", 0n, confirmed, timestamp);
     }
 
-    if (typeof deliveredAmount !== 'object' || !deliveredAmount.value || !deliveredAmount.currency || !deliveredAmount.issuer) {
-      log.warn(`Transaction ${txHash} issued delivered_amount is malformed`);
-      return;
-    }
+    const deltas = tokenAddress === "0x0" ? this.nativeDeltas(meta, result) : this.issuedDeltas(meta, tokenAddress, await this.getDecimals(tokenAddress));
 
-    const { currency, issuer } = this.parseTokenAddress(tokenAddress);
-
-    if (deliveredAmount.currency !== currency || deliveredAmount.issuer !== issuer) {
-      log.warn(`Transaction ${txHash} delivered ${deliveredAmount.currency}:${deliveredAmount.issuer} does not match ${currency}:${issuer}`);
-      return { from: "", to: "", token: "", amount: 0n, confirmed, timestamp };
-    }
-
-    const decimals = await this.getDecimals(tokenAddress);
-
-    const amount = BigInt(
-      new Big(deliveredAmount.value)
-        .times(new Big(10).pow(decimals))
-        .toFixed(0)
-    );
-
-    return {
-      from: result.Account,
-      to: result.Destination,
-      token: tokenAddress,
-      amount,
-      confirmed,
-      timestamp
-    };
+    return settlement(senderAddress, recipientAddress, tokenAddress, provableContribution(deltas, new Set([senderAddress]), recipientAddress), confirmed, timestamp);
   }
 
-  /**
-   * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.
-   */
+  private nativeDeltas(meta: any, tx: any): Map<string, bigint> {
+    const deltas = new Map<string, bigint>();
+    const drops = (fields: any) => fields?.Balance === undefined ? undefined : BigInt(fields.Balance);
+
+    for (const [kind, entry] of affectedNodes(meta, 'AccountRoot')) {
+      addDelta(deltas, (entry.FinalFields ?? entry.NewFields).Account, balanceChange(kind, entry, drops));
+    }
+
+    addDelta(deltas, tx.Account, BigInt(tx.Fee ?? 0));
+
+    return deltas;
+  }
+
+  private issuedDeltas(meta: any, tokenAddress: string, decimals: number): Map<string, bigint> {
+    const { currency, issuer } = this.parseTokenAddress(tokenAddress);
+    const deltas = new Map<string, bigint>();
+
+    for (const [kind, entry] of affectedNodes(meta, 'RippleState')) {
+      const fields = entry.FinalFields ?? entry.NewFields;
+      const high = fields.HighLimit?.issuer;
+      const low = fields.LowLimit?.issuer;
+
+      if (fields.Balance?.currency !== currency || (high !== issuer && low !== issuer)) {
+        continue;
+      }
+
+      const sign = high === issuer ? 1n : -1n;
+      const units = (f: any) => f?.Balance?.value === undefined
+        ? undefined
+        : sign * BigInt(new Big(f.Balance.value).times(new Big(10).pow(decimals)).toFixed(0));
+
+      const change = balanceChange(kind, entry, units);
+
+      addDelta(deltas, high === issuer ? low : high, change);
+      addDelta(deltas, issuer, -change);
+    }
+
+    return deltas;
+  }
+
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {
     const wallet = Wallet.fromSeed(privateKey);
 

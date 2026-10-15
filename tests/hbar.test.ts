@@ -283,7 +283,7 @@ describe('getTxData native HBAR', () => {
     });
   });
 
-  it('prefers the payer entry over a scheduled sibling that credits as well', async () => {
+  it('sums the payer entry and a scheduled sibling that credits as well', async () => {
     const scheduled = {
       ...nativeEntry,
       consensus_timestamp: '1785742061.184710419',
@@ -296,8 +296,27 @@ describe('getTxData native HBAR', () => {
 
     const tx = await mockedNetwork(withEntries(scheduled, nativeEntry)).getTxData(TX_ID, '0x0', RECIPIENT, undefined, PAYER);
 
-    expect(tx?.amount).toBe(2588995597n);
-    expect(tx?.timestamp).toBe(1785741962);
+    expect(tx?.amount).toBe(2588995597n + 777n);
+    expect(tx?.timestamp).toBe(1785742061);
+  });
+
+  it('follows a token payment routed through a contract across child entries', async () => {
+    const parent = { ...tokenEntry, token_transfers: [] };
+    const toRouter = { ...tokenEntry, nonce: 1, transfers: [], token_transfers: [{ token_id: TOKEN, account: PAYER, amount: -500 }, { token_id: TOKEN, account: OTHER, amount: 500 }] };
+    const toRecipient = { ...tokenEntry, nonce: 2, transfers: [], token_transfers: [{ token_id: TOKEN, account: OTHER, amount: -500 }, { token_id: TOKEN, account: RECIPIENT, amount: 500 }] };
+
+    const tx = await mockedNetwork(withEntries(parent, toRouter, toRecipient)).getTxData(TX_ID, TOKEN, RECIPIENT, undefined, PAYER);
+
+    expect(tx).toMatchObject({ from: PAYER, amount: 500n });
+  });
+
+  it('does not credit tokens minted to the recipient while the payer pays elsewhere', async () => {
+    const parent = { ...tokenEntry, token_transfers: [{ token_id: TOKEN, account: PAYER, amount: -500 }, { token_id: TOKEN, account: OTHER, amount: 500 }] };
+    const mint = { ...tokenEntry, nonce: 1, transfers: [], token_transfers: [{ token_id: TOKEN, account: RECIPIENT, amount: 500 }] };
+
+    const tx = await mockedNetwork(withEntries(parent, mint)).getTxData(TX_ID, TOKEN, RECIPIENT, undefined, PAYER);
+
+    expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 
   it('returns nothing when the response carries no top-level entry', async () => {

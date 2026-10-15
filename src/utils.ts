@@ -51,13 +51,15 @@ export function withTimeout<T>(promise: Promise<T>, ms: number, message?: string
 
 const TRACE_TIMEOUT_MS = 8000;
 
-export const TRACE_RETRY_SECONDS = 600;
+const TRACE_RETRY_SECONDS = 600;
+
+export const withinTraceRetryWindow = (timestamp: number): boolean => Date.now() / 1000 - timestamp < TRACE_RETRY_SECONDS;
 
 export async function traceWithinRetryWindow<T>(trace: Promise<T>, txHash: string, timestamp: number): Promise<T | undefined> {
   try {
     return await withTimeout(trace, TRACE_TIMEOUT_MS, `Trace of ${txHash} timed out after ${TRACE_TIMEOUT_MS}ms`);
   } catch (e) {
-    if (Date.now() / 1000 - timestamp < TRACE_RETRY_SECONDS) {
+    if (withinTraceRetryWindow(timestamp)) {
       throw e;
     }
 
@@ -95,6 +97,8 @@ export function provableContribution(deltas: Map<string, bigint>, payers: Set<st
   return contribution > 0n ? contribution : 0n;
 }
 
+export const UNATTRIBUTED = "unattributed";
+
 export type Transfer = [from: string, to: string, amount: bigint];
 
 export function settlement(from: string, to: string, token: string, amount: bigint, confirmed: boolean, timestamp: number, extra: Partial<TransactionData> = {}): TransactionData {
@@ -114,9 +118,12 @@ export function paymentFlow(transfers: Transfer[], payer: string, recipient: str
     return graph.get(from)!;
   };
 
+  let recipientGain = 0n;
+
   for (const [from, to, amount] of transfers) {
     if (from !== to && amount > 0n) {
       edges(gross, from).set(to, (edges(gross, from).get(to) ?? 0n) + amount);
+      recipientGain += to === recipient ? amount : from === recipient ? -amount : 0n;
     }
   }
 
@@ -129,14 +136,6 @@ export function paymentFlow(transfers: Transfer[], payer: string, recipient: str
       if (net > 0n) {
         edges(capacity, from).set(to, net);
       }
-    }
-  }
-
-  let recipientGain = 0n;
-
-  for (const [from, to, amount] of transfers) {
-    if (from !== to && amount > 0n) {
-      recipientGain += to === recipient ? amount : from === recipient ? -amount : 0n;
     }
   }
 
@@ -186,28 +185,6 @@ export function paymentFlow(transfers: Transfer[], payer: string, recipient: str
   return flow < recipientGain ? flow : recipientGain;
 }
 
-export async function expRetry<T>(fn: () => Promise<T>, maxRetries: number = 3, retryIf: (e: Error) => boolean = () => true): Promise<T> {
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await fn();
-    } catch (error) {
-      if (attempt === maxRetries) throw error;
-
-      if (error instanceof Error && retryIf(error)) {
-        log.warn(`Retry attempt #${attempt + 1}: ${error.message}`);
-
-        const delay = Math.pow(2, attempt) * 3000;
-        await new Promise(resolve => setTimeout(resolve, delay));
-        continue;
-      }
-
-      throw error;
-    }
-  }
-
-  throw Error(`Retry failed: maxRetries=${maxRetries}`);
-}
-
 type MemoEntry = { value?: unknown; expiresAt: number; promise?: Promise<unknown> };
 
 const __memoCache = new Map<string, MemoEntry>();
@@ -222,7 +199,7 @@ const __gc = setInterval(() => {
 }, 60_000);
 (__gc as any).unref?.();
 
-export function memoize<T>(key: string, durationMs: number, cb: () => Promise<T> | T): Promise<T> {
+export function memoize<T>(key: string, durationMs: number, cb: () => Promise<T> | T, cacheable: (value: T) => boolean = () => true): Promise<T> {
   const now = Date.now();
   const existing = __memoCache.get(key);
 
@@ -239,7 +216,12 @@ export function memoize<T>(key: string, durationMs: number, cb: () => Promise<T>
   const p = Promise.resolve()
     .then(cb)
     .then(v => {
-      __memoCache.set(key, { value: v, expiresAt });
+      if (cacheable(v)) {
+        __memoCache.set(key, { value: v, expiresAt });
+      } else {
+        __memoCache.delete(key);
+      }
+
       return v;
     })
     .catch(e => {

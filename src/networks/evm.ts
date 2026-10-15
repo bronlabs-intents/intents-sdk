@@ -13,7 +13,7 @@ const ERC165_SUPPORTS_INTERFACE_SELECTOR = '0x01ffc9a7';
 const ERC6909_INTERFACE_ID = '0x0f632fb3';
 const VALUE_FRAME_TYPES = new Set(['CALL', 'CREATE', 'CREATE2', 'SELFDESTRUCT']);
 const MAX_TRACE_FRAMES = 2000;
-const MAX_RECEIPT_LOGS = 500;
+const MAX_TRANSFER_LOGS = 500;
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 interface CallFrame {
@@ -169,14 +169,7 @@ export class EvmNetwork implements Network, AttestationCapable {
     if (receipt.status !== '0x1') {
       log.warn(`Transaction ${txHash} failed on blockchain: ${JSON.stringify(receipt)}`);
 
-      return {
-        from: "",
-        to: "",
-        token: "",
-        amount: 0n,
-        confirmed,
-        timestamp
-      };
+      return settlement("", "", "", 0n, confirmed, timestamp);
     }
 
     const recipient = recipientAddress.toLowerCase();
@@ -198,9 +191,7 @@ export class EvmNetwork implements Network, AttestationCapable {
     };
 
     if (tokenAddress === "0x0") {
-      const contribution = await this.tracedNativeContribution(txHash, timestamp, senderAddress, recipientAddress);
-
-      return contribution === undefined ? undefined : payment(senderAddress, contribution);
+      return payment(senderAddress, await this.tracedNativeContribution(txHash, timestamp, senderAddress, recipientAddress));
     }
 
     // ERC6909 multi-token — match the 4-topic Transfer(caller, sender, receiver, id, amount) of the
@@ -232,8 +223,8 @@ export class EvmNetwork implements Network, AttestationCapable {
   }
 
   private tokenTransfers(txHash: string, transferLogs: EthTransactionReceipt['logs'], decodeAmount: (data: string) => bigint): Transfer[] {
-    if (transferLogs.length > MAX_RECEIPT_LOGS) {
-      log.warn(`Transaction ${txHash} has ${transferLogs.length} transfer logs, over the attribution cap of ${MAX_RECEIPT_LOGS}`);
+    if (transferLogs.length > MAX_TRANSFER_LOGS) {
+      log.warn(`Transaction ${txHash} has ${transferLogs.length} transfer logs, over the attribution cap of ${MAX_TRANSFER_LOGS}`);
       return [];
     }
 
@@ -244,7 +235,7 @@ export class EvmNetwork implements Network, AttestationCapable {
     ]);
   }
 
-  private async tracedNativeContribution(txHash: string, timestamp: number, senderAddress: string, recipientAddress: string): Promise<bigint | undefined> {
+  private async tracedNativeContribution(txHash: string, timestamp: number, senderAddress: string, recipientAddress: string): Promise<bigint> {
     const response = await traceWithinRetryWindow(
       proxyFetch(this.rpcUrl, {
         method: 'POST',
@@ -300,9 +291,6 @@ export class EvmNetwork implements Network, AttestationCapable {
     return paymentFlow(transfers, senderAddress.toLowerCase(), recipientAddress.toLowerCase());
   }
 
-  /**
-   * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.
-   */
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {
     const signer = new ethers.Wallet(privateKey, this.provider);
 

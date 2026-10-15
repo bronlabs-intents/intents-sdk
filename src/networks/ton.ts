@@ -1,13 +1,14 @@
-import { Address, beginCell, internal, SendMode, toNano, TonClient, WalletContractV5R1 } from "@ton/ton";
+import { Address, beginCell, Cell, internal, SendMode, toNano, TonClient, WalletContractV5R1 } from "@ton/ton";
 import { keyPairFromSecretKey } from "@ton/crypto";
 import { ethers } from 'ethers';
 
 import { Network, TransactionData } from "./index.js";
 import { AttestationCapable, SignatureScheme, verifyEd25519 } from '../attestation.js';
-import { log, memoize, paymentFlow, settlement, TRACE_RETRY_SECONDS, traceWithinRetryWindow, Transfer } from "../utils.js";
+import { log, memoize, paymentFlow, settlement, sleep, traceWithinRetryWindow, Transfer, UNATTRIBUTED, withinTraceRetryWindow } from "../utils.js";
 import { proxyFetch } from '../proxy.js';
 
 const MAX_TRACE_TRANSACTIONS = 200;
+const JETTON_INTERNAL_TRANSFER = "0x178d4519";
 
 export class TonNetwork implements Network, AttestationCapable {
   private readonly client: TonClient;
@@ -26,9 +27,7 @@ export class TonNetwork implements Network, AttestationCapable {
     });
   }
 
-  // A TON wallet is a contract; one public key maps to different addresses per wallet version.
-  // Pinned to WalletContractV5R1 (see transfer()) — settlements must come from a V5R1 wallet,
-  // else the derived address won't match orderFrom.
+  // Pinned to WalletContractV5R1 like transfer(): a settlement from any other wallet version won't match orderFrom.
   addressFromPublicKey(publicKey: string): string {
     const wallet = WalletContractV5R1.create({
       workchain: 0,
@@ -42,7 +41,7 @@ export class TonNetwork implements Network, AttestationCapable {
   }
 
   matchesAddress(publicKey: string, address: string): boolean {
-    return this.addressesMatch(this.addressFromPublicKey(publicKey), address);
+    return this.rawAddress(this.addressFromPublicKey(publicKey)) === this.rawAddress(address);
   }
 
   async ping(): Promise<void> {
@@ -91,40 +90,20 @@ export class TonNetwork implements Network, AttestationCapable {
     const confirmed = currentSeqno - txSeqno >= this.confirmations;
     const timestamp = typeof tx.now === 'number' ? tx.now : 0;
 
-    // exit_code is in description.compute_ph.exit_code for transactionsByMessage API
-    // exit_code 0 = success, 1 = alternative success
-    // skipped compute phase (no compute_ph) is ok for simple transfers
-    const computePh = tx.description?.compute_ph;
-    const exitCode = computePh?.exit_code;
-    const computeSuccess = computePh?.success;
-
-    if (computePh && computeSuccess === false) {
-      log.warn(`Transaction ${txHash} failed: exit_code=${exitCode}`);
-
-      return {
-        from: this.normalizeAddress(tx.account) || "",
-        to: "",
-        token: "",
-        amount: 0n,
-        confirmed,
-        timestamp
-      };
-    }
-
     log.info(`Confirmations ${txHash}: ${currentSeqno - txSeqno}`);
 
-    if (tokenAddress === "0x0") {
-      const paid = await this.tracedNativeFlow(txHash, tx.hash, timestamp, senderAddress, recipientAddress);
+    const transactions = await this.traceTransactions(txHash, tx.hash, timestamp);
 
-      return paid === undefined ? undefined : settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, timestamp);
+    if (!transactions) {
+      return;
     }
 
-    return this.parseJettonTransfer(txHash, tokenAddress, recipientAddress, confirmed, timestamp);
+    const transfers = tokenAddress === "0x0" ? this.nativeTransfers(transactions) : await this.jettonTransfers(transactions, this.rawAddress(tokenAddress));
+    const paid = paymentFlow(transfers, this.rawAddress(senderAddress), this.rawAddress(recipientAddress));
+
+    return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, timestamp);
   }
 
-  /**
-   * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.
-   */
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {
     const keyPair = this.parsePrivateKey(privateKey);
 
@@ -150,7 +129,11 @@ export class TonNetwork implements Network, AttestationCapable {
         ]
       });
     } else {
-      const jettonWalletAddress = await this.getJettonWalletAddress(tokenAddress, wallet.address.toString());
+      const jettonWalletAddress = await this.jettonWallet(this.rawAddress(tokenAddress), wallet.address.toRawString());
+
+      if (!jettonWalletAddress) {
+        throw new Error(`Jetton wallet not found for ${wallet.address.toString()}`);
+      }
 
       const jettonTransferBody = beginCell()
         .storeUint(0xf8a7ea5, 32)
@@ -179,7 +162,7 @@ export class TonNetwork implements Network, AttestationCapable {
     }
 
     for (let attempt = 0; attempt < 30; attempt++) {
-      await this.sleep(2000);
+      await sleep(2000);
       const currentSeqno = await contract.getSeqno();
       if (currentSeqno > seqno) break;
     }
@@ -212,44 +195,112 @@ export class TonNetwork implements Network, AttestationCapable {
     throw new Error(`Invalid private key length: ${secretKeyBytes.length}`);
   }
 
-  private async tracedNativeFlow(txHash: string, rootHash: string, timestamp: number, senderAddress: string, recipientAddress: string): Promise<bigint | undefined> {
+  private async traceTransactions(txHash: string, rootHash: string, timestamp: number): Promise<any[] | undefined> {
     const traceResp = await traceWithinRetryWindow(this.request(`/v3/traces?tx_hash=${encodeURIComponent(txHash)}&limit=1`), txHash, timestamp);
-
     const trace = traceResp?.traces?.[0];
+    const fresh = withinTraceRetryWindow(timestamp);
 
-    if (!trace?.transactions && Date.now() / 1000 - timestamp < TRACE_RETRY_SECONDS) {
+    if (!trace?.transactions && fresh) {
       log.info(`Trace of ${txHash} is not indexed yet`);
       return;
     }
 
     if (!trace?.transactions || trace.trace?.tx_hash !== rootHash) {
       log.warn(`Transaction ${txHash} is not the root of an indexed trace; refusing to attribute the trace to it`);
-      return 0n;
+      return [];
     }
 
     if (trace.is_incomplete) {
-      if (Date.now() / 1000 - timestamp < TRACE_RETRY_SECONDS) {
+      if (fresh) {
         log.info(`Trace of ${txHash} is not complete yet`);
         return;
       }
 
-      log.warn(`Trace of ${txHash} is still incomplete after ${TRACE_RETRY_SECONDS}s`);
-      return 0n;
+      log.warn(`Trace of ${txHash} is still incomplete past the retry window`);
+      return [];
     }
 
     const transactions: any[] = Object.values(trace.transactions);
 
     if (transactions.length > MAX_TRACE_TRANSACTIONS) {
       log.warn(`Transaction ${txHash} trace has ${transactions.length} transactions, over the attribution cap of ${MAX_TRACE_TRANSACTIONS}`);
-      return 0n;
+      return [];
     }
 
-    const transfers: Transfer[] = transactions.flatMap((tx: any) => (tx.out_msgs ?? [])
+    return transactions;
+  }
+
+  private nativeTransfers(transactions: any[]): Transfer[] {
+    return transactions.flatMap((tx: any) => (tx.out_msgs ?? [])
       .filter((msg: any) => msg.destination && msg.value)
       .map((msg: any): Transfer => [this.rawAddress(tx.account), this.rawAddress(msg.destination), BigInt(msg.value)])
     );
+  }
 
-    return paymentFlow(transfers, this.rawAddress(senderAddress), this.rawAddress(recipientAddress));
+  private async jettonTransfers(transactions: any[], master: string): Promise<Transfer[]> {
+    const transfers: Transfer[] = [];
+
+    for (const tx of transactions.filter((tx: any) => !tx.description?.aborted && tx.in_msg?.opcode === JETTON_INTERNAL_TRANSFER)) {
+      const decoded = tx.in_msg.message_content?.decoded;
+
+      if (decoded?.["@type"] !== "jetton_internal_transfer") {
+        log.warn(`Jetton transfer received by ${tx.account} is not decoded`);
+        continue;
+      }
+
+      const wallet = this.rawAddress(tx.account);
+      const owner = await this.jettonWalletOwner(wallet);
+
+      if (!owner || await this.jettonWallet(master, owner) !== wallet) {
+        continue;
+      }
+
+      const source = this.rawAddress(tx.in_msg.source);
+      const from = decoded.from?.["@type"] === "addr_std" ? this.rawAddress(`${decoded.from.workchain_id}:${decoded.from.address}`) : undefined;
+
+      if (source === master) {
+        transfers.push([UNATTRIBUTED, owner, BigInt(decoded.amount.value)]);
+      } else if (from && await this.jettonWallet(master, from) === source) {
+        transfers.push([from, owner, BigInt(decoded.amount.value)]);
+      }
+    }
+
+    return transfers;
+  }
+
+  private jettonWallet(master: string, owner: string): Promise<string | undefined> {
+    return memoize(`ton-jetton-wallet-${master}-${owner}`, 86400 * 1000, async () => {
+      const ownerSlice = beginCell().storeAddress(Address.parse(owner)).endCell().toBoc().toString("base64");
+      const stack = await this.runGetMethod(master, "get_wallet_address", [{ type: "slice", value: ownerSlice }]);
+
+      return stack && this.stackAddress(stack[0]);
+    }, address => address !== undefined);
+  }
+
+  private jettonWalletOwner(wallet: string): Promise<string | undefined> {
+    return memoize(`ton-jetton-owner-${wallet}`, 86400 * 1000, async () => {
+      const stack = await this.runGetMethod(wallet, "get_wallet_data", []);
+
+      return stack && this.stackAddress(stack[1]);
+    }, address => address !== undefined);
+  }
+
+  private async runGetMethod(address: string, method: string, stack: any[]): Promise<any[] | undefined> {
+    const result = await this.request("/v3/runGetMethod", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ address, method, stack })
+    });
+
+    return result.exit_code === 0 || result.exit_code === 1 ? result.stack : undefined;
+  }
+
+  private stackAddress(item: any): string | undefined {
+    try {
+      return Cell.fromBase64(item.value).beginParse().loadAddress().toRawString();
+    } catch {
+      return undefined;
+    }
   }
 
   private rawAddress(address: string): string {
@@ -257,109 +308,6 @@ export class TonNetwork implements Network, AttestationCapable {
       return Address.parse(address).toRawString();
     } catch {
       return address.toLowerCase().replace(/[^a-z0-9]/g, "");
-    }
-  }
-
-  private async parseJettonTransfer(
-    txHash: string,
-    tokenAddress: string,
-    recipientAddress: string,
-    confirmed: boolean,
-    timestamp: number
-  ): Promise<TransactionData | undefined> {
-    // The jetton transfer is emitted by the sender's jetton-wallet tx — a child of the user-wallet tx
-    // whose hash we are given. Walk the trace to collect every related tx hash, then look up the
-    // jetton transfer record by master+recipient and match by tx hash from the trace.
-    const traceResp = await this.request(
-      `/v3/traces?tx_hash=${encodeURIComponent(txHash)}&limit=1`
-    );
-
-    const trace = traceResp.traces?.[0]?.trace;
-    if (!trace) {
-      return;
-    }
-
-    const traceTxHashes = new Set<string>();
-    const walk = (node: any): void => {
-      if (node?.tx_hash) {
-        traceTxHashes.add(node.tx_hash);
-      }
-      for (const child of node?.children ?? []) {
-        walk(child);
-      }
-    };
-    walk(trace);
-
-    const resp = await this.request(
-      `/v3/jetton/transfers?jetton_master=${encodeURIComponent(tokenAddress)}` +
-      `&address=${encodeURIComponent(recipientAddress)}&limit=50`
-    );
-
-    const transfer = (resp.jetton_transfers ?? []).find(
-      (t: any) =>
-        typeof t.transaction_hash === "string" &&
-        traceTxHashes.has(t.transaction_hash) &&
-        t.transaction_aborted !== true &&
-        this.addressesMatch(this.normalizeAddress(t.destination?.address || t.destination), recipientAddress)
-    );
-
-    if (!transfer) {
-      return;
-    }
-
-    const fromAddress = this.normalizeAddress(transfer.source?.address || transfer.source);
-    const destAddress = this.normalizeAddress(transfer.destination?.address || transfer.destination);
-
-    return {
-      from: fromAddress,
-      to: destAddress,
-      token: tokenAddress,
-      amount: BigInt(transfer.amount || 0),
-      confirmed,
-      timestamp
-    };
-  }
-
-  private async getJettonWalletAddress(jettonMaster: string, ownerAddress: string): Promise<string> {
-    const response = await this.request(
-      `/v3/jetton/wallets?owner_address=${encodeURIComponent(ownerAddress)}&jetton_address=${encodeURIComponent(jettonMaster)}&limit=1`
-    );
-
-    if (response.jetton_wallets?.length > 0) {
-      return response.jetton_wallets[0].address;
-    }
-
-    throw new Error(`Jetton wallet not found for ${ownerAddress}`);
-  }
-
-  private normalizeAddress(address: any, bounceable: boolean = false): string {
-    if (!address) return "";
-
-    let rawAddress: string;
-
-    if (typeof address === "string") {
-      rawAddress = address;
-    } else if (typeof address === "object" && address.address) {
-      rawAddress = address.address;
-    } else {
-      rawAddress = String(address);
-    }
-
-    try {
-      return Address.parse(rawAddress).toString({ bounceable });
-    } catch {
-      return rawAddress;
-    }
-  }
-
-  private addressesMatch(a: string, b: string): boolean {
-    try {
-      const addrA = Address.parse(a);
-      const addrB = Address.parse(b);
-      return addrA.equals(addrB);
-    } catch {
-      const normalize = (addr: string) => addr.toLowerCase().replace(/[^a-z0-9]/g, "");
-      return normalize(a) === normalize(b);
     }
   }
 
@@ -372,9 +320,5 @@ export class TonNetwork implements Network, AttestationCapable {
     }
 
     return response.json();
-  }
-
-  private sleep(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }

@@ -5,7 +5,7 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from "./index.js";
 import { AttestationCapable, SignatureScheme, verifyEd25519 } from '../attestation.js';
-import { addDelta, log, memoize, provableContribution, sameAddress, settlement } from "../utils.js";
+import { addDelta, log, memoize, provableContribution, sameAddress, settlement, UNATTRIBUTED } from "../utils.js";
 import { proxyFetch } from '../proxy.js';
 
 const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
@@ -32,7 +32,7 @@ function tokenDeltasByOwner(preTokenBalances: any[], postTokenBalances: any[]): 
   const supplyChange = [...deltas.values()].reduce((total, delta) => total + delta, 0n);
 
   if (supplyChange > 0n) {
-    addDelta(deltas, "mint", -supplyChange);
+    addDelta(deltas, UNATTRIBUTED, -supplyChange);
   }
 
   return deltas;
@@ -132,14 +132,7 @@ export class SolNetwork implements Network, AttestationCapable {
     if (result.meta?.err) {
       log.warn(`Transaction ${txHash} failed on blockchain: ${result}`);
 
-      return {
-        from: "",
-        to: "",
-        token: "",
-        amount: 0n,
-        confirmed,
-        timestamp
-      };
+      return settlement("", "", "", 0n, confirmed, timestamp);
     }
 
     log.info(`Confirmations ${txHash}: ${currentBlock - blockNumber}`);
@@ -164,7 +157,7 @@ export class SolNetwork implements Network, AttestationCapable {
 
     return paid > 0n
       ? settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, timestamp)
-      : settlement("", recipientAddress, tokenAddress, provableContribution(deltas, new Set([...payers, "mint"]), recipientAddress), confirmed, timestamp, { envelopeFrom: accountKeys[0] });
+      : settlement("", recipientAddress, tokenAddress, provableContribution(deltas, new Set([...payers, UNATTRIBUTED]), recipientAddress), confirmed, timestamp, { envelopeFrom: accountKeys[0] });
   }
 
   private nativeContribution(meta: any, accountKeys: string[], senderAddress: string, recipientAddress: string): bigint {
@@ -187,14 +180,10 @@ export class SolNetwork implements Network, AttestationCapable {
     return provableContribution(deltas, payers, recipientAddress);
   }
 
-  /**
-   * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.
-   */
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {
     const keypair = this.base58ToKeypair(privateKey);
 
     if (tokenAddress === "0x0") {
-      // Send SOL (native token)
       const transaction = new Transaction().add(
         SystemProgram.transfer({
           fromPubkey: keypair.publicKey,

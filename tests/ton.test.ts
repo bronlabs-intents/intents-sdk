@@ -150,3 +150,107 @@ describe('TonNetwork.getTxData native', () => {
     expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 });
+
+const MASTER = raw(10);
+const FORGED = raw(99);
+const JETTON_AMOUNT = '24486953';
+
+const walletOf = new Map([OWNER_WALLET, MULTISIG, RECIPIENT, OTHER].map((owner, i) => [owner, raw(101 + i)]));
+
+const jettonTransfer = (wallet: string, source: string, from: string | null, amount = JETTON_AMOUNT, aborted = false) => ({
+  ...transaction(wallet, {
+    ...message(source, wallet, '50000000'),
+    opcode: '0x178d4519',
+    message_content: {
+      decoded: {
+        '@type': 'jetton_internal_transfer',
+        amount: { value: amount },
+        from: from ? { '@type': 'addr_std', workchain_id: '0', address: from.slice(2) } : { '@type': 'addr_none' }
+      }
+    }
+  }, []),
+  description: { aborted }
+});
+
+function mockedJettonNetwork(transfers: any[], owners: Map<string, string> = new Map([...walletOf].map(([owner, wallet]) => [wallet, owner]))): TonNetwork {
+  const network = mockedNetwork(traceOf([root, ...transfers]));
+
+  vi.spyOn(network as any, 'jettonWalletOwner').mockImplementation(async (...args: any[]) => owners.get(args[0].toUpperCase())?.toLowerCase());
+  vi.spyOn(network as any, 'jettonWallet').mockImplementation(async (...args: any[]) => args[0].toUpperCase() === MASTER ? walletOf.get(args[1].toUpperCase())?.toLowerCase() : undefined);
+
+  return network;
+}
+
+describe('TonNetwork.getTxData jetton', () => {
+  it('attributes a jetton payment between genuine wallets', async () => {
+    const tx = await mockedJettonNetwork([jettonTransfer(walletOf.get(RECIPIENT)!, walletOf.get(MULTISIG)!, MULTISIG)])
+      .getTxData('hash-0', MASTER, RECIPIENT, undefined, MULTISIG);
+
+    expect(tx).toMatchObject({ from: MULTISIG, to: RECIPIENT, token: MASTER, amount: BigInt(JETTON_AMOUNT) });
+  });
+
+  it('attributes a jetton payment routed through another owner', async () => {
+    const tx = await mockedJettonNetwork([
+      jettonTransfer(walletOf.get(OTHER)!, walletOf.get(MULTISIG)!, MULTISIG),
+      jettonTransfer(walletOf.get(RECIPIENT)!, walletOf.get(OTHER)!, OTHER)
+    ]).getTxData('hash-0', MASTER, RECIPIENT, undefined, MULTISIG);
+
+    expect(tx).toMatchObject({ from: MULTISIG, amount: BigInt(JETTON_AMOUNT) });
+  });
+
+  it('refuses a transfer whose sending wallet does not belong to the claimed owner', async () => {
+    const tx = await mockedJettonNetwork([jettonTransfer(walletOf.get(RECIPIENT)!, FORGED, MULTISIG)])
+      .getTxData('hash-0', MASTER, RECIPIENT, undefined, MULTISIG);
+
+    expect(tx).toMatchObject({ from: '', amount: 0n });
+  });
+
+  it('refuses a receiving wallet that is not the master\'s wallet of its owner', async () => {
+    const tx = await mockedJettonNetwork([jettonTransfer(FORGED, walletOf.get(MULTISIG)!, MULTISIG)], new Map([[FORGED, RECIPIENT]]))
+      .getTxData('hash-0', MASTER, RECIPIENT, undefined, MULTISIG);
+
+    expect(tx).toMatchObject({ from: '', amount: 0n });
+  });
+
+  it('refuses a mint from the master to the recipient', async () => {
+    const tx = await mockedJettonNetwork([jettonTransfer(walletOf.get(RECIPIENT)!, MASTER, null)])
+      .getTxData('hash-0', MASTER, RECIPIENT, undefined, MULTISIG);
+
+    expect(tx).toMatchObject({ from: '', amount: 0n });
+  });
+
+  it('ignores an aborted jetton transfer', async () => {
+    const tx = await mockedJettonNetwork([jettonTransfer(walletOf.get(RECIPIENT)!, walletOf.get(MULTISIG)!, MULTISIG, JETTON_AMOUNT, true)])
+      .getTxData('hash-0', MASTER, RECIPIENT, undefined, MULTISIG);
+
+    expect(tx).toMatchObject({ from: '', amount: 0n });
+  });
+
+  it('does not credit a jetton transfer the indexer has not decoded', async () => {
+    const undecoded = jettonTransfer(walletOf.get(RECIPIENT)!, walletOf.get(MULTISIG)!, MULTISIG);
+    undecoded.in_msg.message_content = {} as any;
+
+    expect(await mockedJettonNetwork([undecoded]).getTxData('hash-0', MASTER, RECIPIENT, undefined, MULTISIG)).toMatchObject({ from: '', amount: 0n });
+  });
+
+  it('does not cache a failed jetton wallet lookup', async () => {
+    const network = new TonNetwork('http://rpc', 1);
+    const request = vi.spyOn(network as any, 'request').mockResolvedValue({ exit_code: -13, stack: [] });
+
+    expect(await (network as any).jettonWalletOwner(FORGED)).toBeUndefined();
+    expect(await (network as any).jettonWalletOwner(FORGED)).toBeUndefined();
+    expect(request).toHaveBeenCalledTimes(2);
+  });
+
+  it('reads the jetton wallet address from the master get-method', async () => {
+    const network = new TonNetwork('http://rpc', 1);
+
+    vi.spyOn(network as any, 'request').mockResolvedValue({
+      exit_code: 0,
+      stack: [{ type: 'cell', value: 'te6cckEBAQEAJAAAQ4AVhHkkM20BvtL2RVkJjA69qFG7V8C+kftvgEbGZihrSJBb2YRG' }]
+    });
+
+    expect(await (network as any).jettonWallet(MASTER, '0:A5AE7561B0BEE91CD12AD946C2359EEBB64491D4BB13FC46D6E1B0AC3F04EF74'))
+      .toBe('0:ac23c9219b680df697b22ac84c6075ed428ddabe05f48fdb7c02363331435a44');
+  });
+});

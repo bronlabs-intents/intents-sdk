@@ -131,14 +131,7 @@ export class TrxNetwork implements Network, AttestationCapable {
       if (response.ret[0].contractRet != "SUCCESS") {
         log.warn(`Transaction ${txHash} failed on blockchain: ${response}`);
 
-        return {
-          from: "",
-          to: "",
-          token: "",
-          amount: 0n,
-          confirmed,
-          timestamp
-        };
+        return settlement("", "", "", 0n, confirmed, timestamp);
       }
 
       log.info(`Confirmations ${txHash}: ${currentBlock - blockNumber}`);
@@ -168,14 +161,7 @@ export class TrxNetwork implements Network, AttestationCapable {
     if (response.receipt.result != "SUCCESS") {
       log.warn(`Transaction ${txHash} failed on blockchain: ${response}`);
 
-      return {
-        from: "",
-        to: "",
-        token: "",
-        amount: 0n,
-        confirmed,
-        timestamp
-      };
+      return settlement("", "", "", 0n, confirmed, timestamp);
     }
 
     const tokenBody = addrBody(toHex(tokenAddress));
@@ -236,9 +222,6 @@ export class TrxNetwork implements Network, AttestationCapable {
     return transfers;
   }
 
-  /**
-   * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.
-   */
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {
     this.tronWeb.setPrivateKey(privateKey);
 

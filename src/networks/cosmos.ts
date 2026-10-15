@@ -25,7 +25,6 @@ export class CosmosNetwork implements Network, AttestationCapable {
     this.bech32 = bech32
   }
 
-  // bech32(prefix, ripemd160(sha256(compressed secp256k1 pubkey))) — standard Cosmos account address.
   addressFromPublicKey(publicKey: string): string {
     const compressed = ethers.getBytes(ethers.SigningKey.computePublicKey(publicKey, true));
     const sha = ethers.getBytes(ethers.sha256(compressed));
@@ -74,14 +73,7 @@ export class CosmosNetwork implements Network, AttestationCapable {
     if (result.tx_result.code !== 0) {
       log.warn(`Transaction ${txHash} failed on blockchain: code=${result.tx_result.code}`);
 
-      return {
-        from: "",
-        to: "",
-        token: "",
-        amount: 0n,
-        confirmed: false,
-        timestamp: 0
-      }
+      return settlement("", "", "", 0n, false, 0)
     }
 
     let denom = tokenAddress;
@@ -116,9 +108,6 @@ export class CosmosNetwork implements Network, AttestationCapable {
     return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, timestamp);
   }
 
-  /**
-   * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.
-   */
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string) {
     const wallet = await DirectSecp256k1Wallet.fromKey(Buffer.from(privateKey, 'hex'), this.bech32);
     const [account] = await wallet.getAccounts();
