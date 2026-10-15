@@ -311,7 +311,8 @@ describe('EvmNetwork.ping', () => {
   it.each([
     { code: -32601, message: 'Method not found' },
     { code: -32000, message: 'rpc method is not whitelisted' },
-    { code: -32004, message: 'debug namespace is not supported' }
+    { code: -32004, message: 'debug namespace is not supported' },
+    { code: -32000, message: 'debug_traceTransaction is not available on the Free tier' }
   ])('refuses an RPC without debug_traceTransaction: $message', async (traceError) => {
     mockRpc({ traceError });
 

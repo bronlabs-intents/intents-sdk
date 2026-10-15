@@ -16,6 +16,8 @@ const MAX_TRACE_FRAMES = 2000;
 const MAX_TRANSFER_LOGS = 500;
 const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
+type RpcResponse<T> = { result?: T; error?: { code: number; message: string } };
+
 interface CallFrame {
   type: string;
   from: string;
@@ -54,9 +56,9 @@ export class EvmNetwork implements Network, AttestationCapable {
   async ping(): Promise<void> {
     await this.provider.getBlockNumber();
 
-    const { error } = await this.traceTransaction(ethers.ZeroHash);
+    const { error } = await this.rpc("debug_traceTransaction", [ethers.ZeroHash, { tracer: "callTracer" }]);
 
-    if (error && (error.code === -32601 || /method|whitelist|not supported|not allowed/i.test(error.message))) {
+    if (error && (error.code === -32601 || !/transaction.*not found|cannot find transaction|unknown transaction/i.test(error.message))) {
       throw new Error(`RPC does not serve debug_traceTransaction: ${error.message}`);
     }
   }
@@ -71,22 +73,13 @@ export class EvmNetwork implements Network, AttestationCapable {
 
   async supportsInterface(tokenAddress: string, interfaceId: string): Promise<boolean> {
     return memoize(`supports-interface-${this.rpcUrl}-${tokenAddress}-${interfaceId}`, 86400 * 1000, async () => {
-      const { result } = await proxyFetch(this.rpcUrl, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          id: 1,
-          jsonrpc: "2.0",
-          method: "eth_call",
-          params: [
-            {
-              to: tokenAddress,
-              data: ERC165_SUPPORTS_INTERFACE_SELECTOR + interfaceId.slice(2).padStart(8, '0').padEnd(64, '0')
-            },
-            "latest"
-          ]
-        })
-      }).then((res) => res.json());
+      const { result } = await this.rpc("eth_call", [
+        {
+          to: tokenAddress,
+          data: ERC165_SUPPORTS_INTERFACE_SELECTOR + interfaceId.slice(2).padStart(8, '0').padEnd(64, '0')
+        },
+        "latest"
+      ]);
 
       return !!result && result !== "0x" && BigInt(result) !== 0n;
     });
@@ -110,22 +103,13 @@ export class EvmNetwork implements Network, AttestationCapable {
       : "0x313ce567";
 
     return memoize(`decimals-${this.rpcUrl}-${tokenAddress}-${tokenId ?? ''}`, 86400 * 1000, async () => {
-      const { result } = await proxyFetch(this.rpcUrl, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          id: 1,
-          jsonrpc: "2.0",
-          method: "eth_call",
-          params: [
-            {
-              to: tokenAddress,
-              data: callData
-            },
-            "latest"
-          ]
-        })
-      }).then((res) => res.json());
+      const { result } = await this.rpc("eth_call", [
+        {
+          to: tokenAddress,
+          data: callData
+        },
+        "latest"
+      ]);
 
       if (!result || result === "0x") {
         throw new Error(`No on-chain decimals for ${tokenAddress}${tokenId !== undefined ? ` id ${tokenId}` : ''}`);
@@ -136,16 +120,7 @@ export class EvmNetwork implements Network, AttestationCapable {
   }
 
   async blockTimestamp(blockNumber: string): Promise<number> {
-    const { result } = await proxyFetch(this.rpcUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        id: 1,
-        jsonrpc: "2.0",
-        method: "eth_getBlockByNumber",
-        params: [blockNumber, false]
-      })
-    }).then((res) => res.json());
+    const { result } = await this.rpc("eth_getBlockByNumber", [blockNumber, false]);
 
     return result?.timestamp ? parseInt(result.timestamp, 16) : 0;
   }
@@ -153,16 +128,7 @@ export class EvmNetwork implements Network, AttestationCapable {
   async getTxData(txHash: string, tokenAddress: string, recipientAddress: string, tokenId: bigint | undefined, senderAddress: string): Promise<TransactionData | undefined> {
     const currentBlock = await this.provider.getBlockNumber();
 
-    const { result: receiptResult } = await proxyFetch(this.rpcUrl, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        id: 1,
-        jsonrpc: "2.0",
-        method: "eth_getTransactionReceipt",
-        params: [txHash]
-      })
-    }).then((res) => res.json());
+    const { result: receiptResult } = await this.rpc("eth_getTransactionReceipt", [txHash]);
 
     if (!receiptResult) {
       return;
@@ -245,22 +211,17 @@ export class EvmNetwork implements Network, AttestationCapable {
     ]);
   }
 
-  private traceTransaction(txHash: string): Promise<{ result?: CallFrame; error?: { code: number; message: string } }> {
+  private rpc<T = any>(method: string, params: unknown[]): Promise<RpcResponse<T>> {
     return proxyFetch(this.rpcUrl, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        id: 1,
-        jsonrpc: "2.0",
-        method: "debug_traceTransaction",
-        params: [txHash, { tracer: "callTracer" }]
-      })
-    }).then((res) => res.json() as Promise<{ result?: CallFrame; error?: { code: number; message: string } }>);
+      body: JSON.stringify({ id: 1, jsonrpc: "2.0", method, params })
+    }).then((res) => res.json() as Promise<RpcResponse<T>>);
   }
 
   private async tracedNativeContribution(txHash: string, timestamp: number, senderAddress: string, recipientAddress: string): Promise<bigint> {
     const response = await traceWithinRetryWindow(
-      this.traceTransaction(txHash)
+      this.rpc<CallFrame>("debug_traceTransaction", [txHash, { tracer: "callTracer" }])
         .then((body) => {
           if (!body.result) {
             throw new Error(`Trace of ${txHash} unavailable: ${JSON.stringify(body.error ?? null)}`);

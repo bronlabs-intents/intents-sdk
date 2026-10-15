@@ -2,7 +2,7 @@ import * as ed25519 from '@noble/ed25519';
 
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme } from '../attestation.js';
-import { log, expRetry, settlement } from '../utils.js';
+import { log, expRetry, memoize, settlement } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 import { Big } from 'big.js';
 import { ethers } from 'ethers';
@@ -83,8 +83,8 @@ export class CantonNetwork implements Network, AttestationCapable {
     _tokenId: bigint | undefined,
     senderAddress: string
   ): Promise<TransactionData | undefined> {
-    const credit = (from: string, to: string, token: string, amount: bigint, confirmed: boolean, timestamp: number) =>
-      settlement(senderAddress, recipientAddress, tokenAddress, from === senderAddress && to === recipientAddress && token === tokenAddress ? amount : 0n, confirmed, timestamp);
+    const credit = (from: string, to: string, token: string, amount: bigint, timestamp: number) =>
+      settlement(senderAddress, recipientAddress, tokenAddress, from === senderAddress && to === recipientAddress && token === tokenAddress ? amount : 0n, true, timestamp);
 
     const updateId = txHash.split(':')[0];
 
@@ -146,7 +146,6 @@ export class CantonNetwork implements Network, AttestationCapable {
     }
 
     if (tokenAddress === '0x0') {
-      // Pre-0.5.16 ledgers carry the amulet transfer only as a root AmuletRules_Transfer.
       const transfer: any = events.find(e => e.ExercisedEvent?.choice === 'AmuletRules_Transfer');
       if (transfer != null) {
 
@@ -158,7 +157,7 @@ export class CantonNetwork implements Network, AttestationCapable {
         const from = transfer?.ExercisedEvent?.choiceArgument?.transfer?.sender || "";
         const amount = BigInt(Big(output.amount).mul(Big(10).pow(this.nativeAssetDecimals)).toFixed(0));
 
-        return credit(from, output.receiver, tokenAddress, amount, true, timestamp);
+        return credit(from, output.receiver, tokenAddress, amount, timestamp);
       } else {
         const arg = transferFactoryEvent.ExercisedEvent?.choiceArgument?.transfer;
 
@@ -168,7 +167,9 @@ export class CantonNetwork implements Network, AttestationCapable {
 
         const amount = BigInt(Big(arg.amount).mul(Big(10).pow(this.nativeAssetDecimals)).toFixed(0));
 
-        return credit(arg.sender, arg.receiver, tokenAddress, amount, true, timestamp);
+        const isAmulet = arg.instrumentId?.id === 'Amulet' && arg.instrumentId?.admin === await this.dsoParty();
+
+        return credit(arg.sender, arg.receiver, isAmulet ? tokenAddress : '', amount, timestamp);
       }
     }
 
@@ -187,7 +188,7 @@ export class CantonNetwork implements Network, AttestationCapable {
         throw new Error(`Transaction ${txHash} has token TransferInstructionResult_Completed but no transfer args: ${JSON.stringify(txValue)}`);
       }
 
-      return credit(sender, receiver, txTokenAddress, ethers.parseUnits(amount, tokenDecimals), true, timestamp);
+      return credit(sender, receiver, txTokenAddress, ethers.parseUnits(amount, tokenDecimals), timestamp);
     }
 
     const eventsByContract = await this.nodeRequest({
@@ -237,7 +238,7 @@ export class CantonNetwork implements Network, AttestationCapable {
     }
 
     if (tokenResultTag === "TransferInstructionResult_Completed") {
-      return credit(sender, receiver, txTokenAddress, ethers.parseUnits(amount, tokenDecimals), true, timestamp);
+      return credit(sender, receiver, txTokenAddress, ethers.parseUnits(amount, tokenDecimals), timestamp);
     } else {
       log.error(`Transaction ${txHash} has wrong tokenResultTag: ${tokenResultTag}`);
 
@@ -318,6 +319,12 @@ export class CantonNetwork implements Network, AttestationCapable {
 
       return `${update_id}:${transferCommandCid}`;
     }, 10);
+  }
+
+  private dsoParty(): Promise<string> {
+    return memoize(`canton-dso-party-${this.validatorApiUrl}`, 86_400_000, async () =>
+      (await this.nodeRequest({ method: 'GET', uri: '/v0/scan-proxy/dso-party-id' })).dso_party_id
+    );
   }
 
   private async buildIdentifierFilter(opts: {

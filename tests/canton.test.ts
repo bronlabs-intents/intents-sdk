@@ -5,11 +5,13 @@ import { CantonNetwork } from '../src/networks/canton.js';
 const PAYER = 'payer::1220aa';
 const RECIPIENT = 'recipient::1220bb';
 const OTHER = 'other::1220cc';
+const DSO = 'DSO::1220dd';
+const AMULET = { admin: DSO, id: 'Amulet' };
 
-function mockedNetwork(sender: string, receiver: string, tag = 'TransferInstructionResult_Completed'): CantonNetwork {
+function mockedNetwork(sender: string, receiver: string, tag = 'TransferInstructionResult_Completed', instrumentId: any = AMULET): CantonNetwork {
   const network = new CantonNetwork('http://validator', 'http://ledger');
 
-  vi.spyOn(network as any, 'nodeRequest').mockResolvedValue({
+  vi.spyOn(network as any, 'nodeRequest').mockImplementation(async (...args: any[]) => args[0].uri === '/v0/scan-proxy/dso-party-id' ? { dso_party_id: DSO } : ({
     update: {
       Transaction: {
         value: {
@@ -18,14 +20,14 @@ function mockedNetwork(sender: string, receiver: string, tag = 'TransferInstruct
           events: [{
             ExercisedEvent: {
               choice: 'TransferFactory_Transfer',
-              choiceArgument: { transfer: { sender, receiver, amount: '12.5' } },
+              choiceArgument: { transfer: { sender, receiver, amount: '12.5', instrumentId } },
               exerciseResult: { output: { tag } }
             }
           }]
         }
       }
     }
-  });
+  }));
 
   return network;
 }
@@ -45,6 +47,13 @@ describe('CantonNetwork.getTxData', () => {
 
   it('refuses a transfer to another receiver', async () => {
     const tx = await mockedNetwork(PAYER, OTHER).getTxData('update-1', '0x0', RECIPIENT, undefined, PAYER);
+
+    expect(tx).toMatchObject({ from: '', amount: 0n });
+  });
+
+  it('refuses another token sent as native', async () => {
+    const tx = await mockedNetwork(PAYER, RECIPIENT, 'TransferInstructionResult_Completed', { admin: OTHER, id: 'Amulet' })
+      .getTxData('update-1', '0x0', RECIPIENT, undefined, PAYER);
 
     expect(tx).toMatchObject({ from: '', amount: 0n });
   });
