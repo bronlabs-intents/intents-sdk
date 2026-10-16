@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { paymentFlow, provableContribution, Transfer } from '../src/utils.js';
+import { directPayment, provableContribution, Transfer } from '../src/utils.js';
 
 const PAYER = 'payer';
 const RECIPIENT = 'recipient';
@@ -44,46 +44,30 @@ describe('provableContribution', () => {
   });
 });
 
-describe('paymentFlow', () => {
-  const flow = (transfers: Transfer[]) => paymentFlow(transfers, PAYER, RECIPIENT);
+describe('directPayment', () => {
+  const paid = (transfers: Transfer[]) => directPayment(transfers, PAYER, RECIPIENT);
 
   it('counts a direct transfer', () => {
-    expect(flow([[PAYER, RECIPIENT, 100n]])).toBe(100n);
+    expect(paid([[PAYER, RECIPIENT, 100n]])).toBe(100n);
   });
 
-  it('follows a payment through intermediaries', () => {
-    expect(flow([[PAYER, ROUTER, 100n], [ROUTER, OTHER, 100n], [OTHER, RECIPIENT, 100n]])).toBe(100n);
+  it('sums several direct transfers', () => {
+    expect(paid([[PAYER, RECIPIENT, 60n], [OTHER, ROUTER, 5n], [PAYER, RECIPIENT, 40n]])).toBe(100n);
   });
 
-  it('caps the flow at the narrowest hop', () => {
-    expect(flow([[PAYER, ROUTER, 100n], [ROUTER, RECIPIENT, 40n]])).toBe(40n);
+  it('gives nothing for a payment routed through an intermediary', () => {
+    expect(paid([[PAYER, ROUTER, 100n], [ROUTER, RECIPIENT, 100n]])).toBe(0n);
   });
 
-  it('counts tokens the payer received in the same transaction', () => {
-    expect(flow([[OTHER, PAYER, 100n], [PAYER, RECIPIENT, 100n]])).toBe(100n);
+  it('gives nothing when a third party pays the recipient', () => {
+    expect(paid([[OTHER, RECIPIENT, 100n], [PAYER, ROUTER, 100n]])).toBe(0n);
   });
 
-  it('gives nothing when no transfer path leads from the payer to the recipient', () => {
-    expect(flow([[OTHER, RECIPIENT, 100n], [PAYER, ROUTER, 100n]])).toBe(0n);
+  it('nets transfers back from the recipient to the payer', () => {
+    expect(paid([[PAYER, RECIPIENT, 100n], [RECIPIENT, PAYER, 30n]])).toBe(70n);
   });
 
-  it('nets transfers between the same two accounts', () => {
-    expect(flow([[PAYER, RECIPIENT, 100n], [RECIPIENT, PAYER, 30n]])).toBe(70n);
-  });
-
-  it('sums parallel paths', () => {
-    expect(flow([[PAYER, ROUTER, 60n], [ROUTER, RECIPIENT, 60n], [PAYER, OTHER, 40n], [OTHER, RECIPIENT, 40n]])).toBe(100n);
-  });
-
-  it('gives nothing for a round trip through the recipient own funds', () => {
-    expect(flow([[RECIPIENT, OTHER, 100n], [OTHER, PAYER, 100n], [PAYER, RECIPIENT, 100n]])).toBe(0n);
-  });
-
-  it('caps the flow at what the recipient keeps', () => {
-    expect(flow([[PAYER, RECIPIENT, 100n], [RECIPIENT, OTHER, 30n]])).toBe(70n);
-  });
-
-  it('terminates on cycles', () => {
-    expect(flow([[PAYER, ROUTER, 100n], [ROUTER, OTHER, 100n], [OTHER, ROUTER, 50n], [ROUTER, RECIPIENT, 50n]])).toBe(50n);
+  it('never goes below zero', () => {
+    expect(paid([[RECIPIENT, PAYER, 30n]])).toBe(0n);
   });
 });

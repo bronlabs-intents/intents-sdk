@@ -4,7 +4,7 @@ import { blake2AsHex, decodeAddress, encodeAddress } from '@polkadot/util-crypto
 
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifyEd25519 } from '../attestation.js';
-import { log, paymentFlow, settlement, Transfer as FlowEdge } from '../utils.js';
+import { directPayment, log, settlement, Transfer as FlowEdge } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 
 const SS58_PREFIX = 42;
@@ -122,7 +122,7 @@ export class TaoNetwork implements Network, AttestationCapable {
     }
 
     const transfers = outcome.transfers.map((t): FlowEdge => [u8aToHex(t.from), u8aToHex(t.to), t.amount]);
-    const paid = paymentFlow(transfers, u8aToHex(sender), u8aToHex(recipient));
+    const paid = directPayment(transfers, u8aToHex(sender), u8aToHex(recipient));
 
     if (paid === 0n) {
       log.warn(`TAO tx ${txHash} moves nothing from ${senderAddress} to ${recipientAddress}`);
