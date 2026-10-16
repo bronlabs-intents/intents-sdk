@@ -2,7 +2,7 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
-import { addDelta, log, provableContribution, settlement, sleep, UNATTRIBUTED } from '../utils.js';
+import { addDelta, chargeMint, log, provableContribution, settlement, sleep } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 
 interface HbarTransfer {
@@ -210,12 +210,11 @@ export class HbarNetwork implements Network, AttestationCapable {
       return settlement("", "", "", 0n, confirmed, consensusSeconds(primary));
     }
 
-    const native = tokenAddress === "0x0";
     const successful = entries.filter(t => t.result === 'SUCCESS');
     const deltas = new Map<string, bigint>();
 
     for (const entry of successful) {
-      for (const [account, delta] of this.entryDeltas(entry, native ? nettedTransfers(entry) : (entry.token_transfers ?? []).filter(t => t.token_id === tokenAddress), native)) {
+      for (const [account, delta] of this.entryDeltas(entry, tokenAddress)) {
         addDelta(deltas, account, delta);
       }
     }
@@ -226,7 +225,7 @@ export class HbarNetwork implements Network, AttestationCapable {
       log.warn(`Transaction ${txHash} does not pay ${tokenAddress} from ${senderAddress} to ${recipientAddress}`);
     }
 
-    return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, Math.max(...successful.map(consensusSeconds), consensusSeconds(primary)));
+    return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, Math.max(...successful.map(consensusSeconds)));
   }
 
   private async resolveEthereumHash(txHash: string): Promise<string | undefined> {
@@ -251,7 +250,9 @@ export class HbarNetwork implements Network, AttestationCapable {
     return typeof account?.account === 'string' && ENTITY_ID.test(account.account) ? account.account : undefined;
   }
 
-  private entryDeltas(entry: HbarTransaction, transfers: HbarTransfer[], native: boolean): Map<string, bigint> {
+  private entryDeltas(entry: HbarTransaction, tokenAddress: string): Map<string, bigint> {
+    const native = tokenAddress === "0x0";
+    const transfers = native ? nettedTransfers(entry) : (entry.token_transfers ?? []).filter(t => t.token_id === tokenAddress);
     const deltas = new Map<string, bigint>();
 
     for (const t of transfers) {
@@ -266,10 +267,8 @@ export class HbarNetwork implements Network, AttestationCapable {
       addDelta(deltas, payer, BigInt(safeAmount(entry.charged_tx_fee)));
     }
 
-    const minted = [...deltas.values()].reduce((sum, delta) => sum + delta, 0n);
-
-    if (!native && minted > 0n) {
-      addDelta(deltas, UNATTRIBUTED, -minted);
+    if (!native) {
+      chargeMint(deltas);
     }
 
     return deltas;

@@ -4,7 +4,7 @@ import { blake2AsHex, decodeAddress, encodeAddress } from '@polkadot/util-crypto
 
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifyEd25519 } from '../attestation.js';
-import { directPayment, log, settlement, Transfer as FlowEdge } from '../utils.js';
+import { directPayment, log, settlement, Transfer } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 
 const SS58_PREFIX = 42;
@@ -26,7 +26,7 @@ interface ExtrinsicLocation {
   index: number;
 }
 
-interface Transfer {
+interface BalanceTransfer {
   from: Uint8Array;
   to: Uint8Array;
   amount: bigint;
@@ -34,7 +34,7 @@ interface Transfer {
 
 interface ExtrinsicOutcome {
   failed: boolean;
-  transfers: Transfer[];
+  transfers: BalanceTransfer[];
 }
 
 export function taoAccountId(address: string): Uint8Array | undefined {
@@ -121,7 +121,7 @@ export class TaoNetwork implements Network, AttestationCapable {
       return settlement('', '', '', 0n, true, timestamp);
     }
 
-    const transfers = outcome.transfers.map((t): FlowEdge => [u8aToHex(t.from), u8aToHex(t.to), t.amount]);
+    const transfers = outcome.transfers.map((t): Transfer => [u8aToHex(t.from), u8aToHex(t.to), t.amount]);
     const paid = directPayment(transfers, u8aToHex(sender), u8aToHex(recipient));
 
     if (paid === 0n) {

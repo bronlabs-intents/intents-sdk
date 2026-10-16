@@ -146,6 +146,7 @@ export class EvmNetwork implements Network, AttestationCapable {
       return settlement("", "", "", 0n, confirmed, timestamp);
     }
 
+    const payer = senderAddress.toLowerCase();
     const recipient = recipientAddress.toLowerCase();
 
     const payment = (from: string, amount: bigint, extra: Partial<TransactionData> = {}): TransactionData =>
@@ -158,7 +159,7 @@ export class EvmNetwork implements Network, AttestationCapable {
         decodeAmount(l.data)
       ]);
 
-      const paid = directPayment(transfers, senderAddress.toLowerCase(), recipient);
+      const paid = directPayment(transfers, payer, recipient);
 
       return paid > 0n
         ? payment(senderAddress, paid, extra)
@@ -166,7 +167,7 @@ export class EvmNetwork implements Network, AttestationCapable {
     };
 
     if (tokenAddress === "0x0") {
-      return payment(senderAddress, directPayment(await this.nativeTransfers(txHash), senderAddress.toLowerCase(), recipient));
+      return payment(senderAddress, directPayment(await this.nativeTransfers(txHash), payer, recipient));
     }
 
     // ERC6909 multi-token — match the 4-topic Transfer(caller, sender, receiver, id, amount) of the
@@ -180,9 +181,9 @@ export class EvmNetwork implements Network, AttestationCapable {
 
       const transferLogs = receipt.logs.filter(l =>
         sameAddress(l.address, tokenAddress) &&
-        sameAddress(l.topics[0], ERC6909_TRANSFER_TOPIC) &&
+        l.topics[0]?.toLowerCase() === ERC6909_TRANSFER_TOPIC &&
         l.topics.length === 4 &&
-        sameAddress(l.topics[3], idHex)
+        l.topics[3]?.toLowerCase() === idHex
       );
 
       return tokenPayment(transferLogs, decodeErc6909TransferAmount, { tokenId });
@@ -190,7 +191,7 @@ export class EvmNetwork implements Network, AttestationCapable {
 
     const transferLogs = receipt.logs.filter(l =>
       sameAddress(l.address, tokenAddress) &&
-      sameAddress(l.topics[0], ERC20_TRANSFER_TOPIC) &&
+      l.topics[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC &&
       l.topics.length === 3
     );
 

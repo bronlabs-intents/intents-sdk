@@ -99,6 +99,10 @@ export class TrxNetwork implements Network, AttestationCapable {
       body: JSON.stringify({ num: 1 })
     }).then((res) => res.block[0].block_header.raw_data.number);
 
+    const payerBody = base58Body(senderAddress);
+    const recipientBody = base58Body(recipientAddress);
+    const paid = (transfers: Transfer[]): bigint => payerBody && recipientBody ? directPayment(transfers, payerBody, recipientBody) : 0n;
+
     if (tokenAddress === "0x0") {
       const response = await this.request(`/wallet/gettransactionbyid`, {
         method: "POST",
@@ -137,7 +141,7 @@ export class TrxNetwork implements Network, AttestationCapable {
 
       const contract = response.raw_data?.contract?.[0];
 
-      return this.payment(this.nativeTransfers(txHash, contract, info.internal_transactions ?? []), senderAddress, tokenAddress, recipientAddress, confirmed, timestamp);
+      return settlement(senderAddress, recipientAddress, tokenAddress, paid(this.nativeTransfers(txHash, contract, info.internal_transactions ?? [])), confirmed, timestamp);
     }
 
     const response = await this.request(
@@ -176,15 +180,7 @@ export class TrxNetwork implements Network, AttestationCapable {
         return [addrBody(l.topics[1]), addrBody(l.topics[2]), data ? BigInt("0x" + data) : 0n];
       });
 
-    return this.payment(transfers, senderAddress, tokenAddress, recipientAddress, confirmed, timestamp);
-  }
-
-  private payment(transfers: Transfer[], senderAddress: string, tokenAddress: string, recipientAddress: string, confirmed: boolean, timestamp: number): TransactionData {
-    const payerBody = base58Body(senderAddress);
-    const recipientBody = base58Body(recipientAddress);
-    const amount = payerBody && recipientBody ? directPayment(transfers, payerBody, recipientBody) : 0n;
-
-    return settlement(senderAddress, recipientAddress, tokenAddress, amount, confirmed, timestamp);
+    return settlement(senderAddress, recipientAddress, tokenAddress, paid(transfers), confirmed, timestamp);
   }
 
   private nativeTransfers(txHash: string, contract: any, internalTransactions: any[]): Transfer[] {

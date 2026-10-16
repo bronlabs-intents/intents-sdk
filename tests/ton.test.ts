@@ -119,6 +119,16 @@ describe('TonNetwork.getTxData native', () => {
     expect(await network.getTxData('hash', '0x0', RECIPIENT, undefined, MULTISIG)).toBeUndefined();
   });
 
+  it('refuses a transaction that spawns too many transactions to walk', async () => {
+    const dust = Array.from({ length: 200 }, () => message(MULTISIG, SINK, '1'));
+    const pay = message(MULTISIG, RECIPIENT, AMOUNT);
+    const root = transaction(MULTISIG, message(null, MULTISIG, null), [...dust, pay]);
+
+    const tx = await mockedNetwork(root, [...dust, pay].map(msg => consume(msg))).getTxData(root.hash, '0x0', RECIPIENT, undefined, MULTISIG);
+
+    expect(tx).toMatchObject({ from: '', amount: 0n });
+  });
+
   it('ignores external out messages', async () => {
     const pay = message(MULTISIG, RECIPIENT, AMOUNT);
     const root = transaction(MULTISIG, message(null, MULTISIG, null), [pay, message(MULTISIG, null, null)]);

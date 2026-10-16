@@ -80,6 +80,14 @@ export function provableContribution(deltas: Map<string, bigint>, payers: Set<st
 
 export const UNATTRIBUTED = "unattributed";
 
+export function chargeMint(deltas: Map<string, bigint>): void {
+  const minted = [...deltas.values()].reduce((sum, delta) => sum + delta, 0n);
+
+  if (minted > 0n) {
+    addDelta(deltas, UNATTRIBUTED, -minted);
+  }
+}
+
 export type Transfer = [from: string, to: string, amount: bigint];
 
 export function settlement(from: string, to: string, token: string, amount: bigint, confirmed: boolean, timestamp: number, extra: Partial<TransactionData> = {}): TransactionData {
@@ -89,8 +97,15 @@ export function settlement(from: string, to: string, token: string, amount: bigi
 }
 
 export function directPayment(transfers: Transfer[], payer: string, recipient: string): bigint {
-  const paid = transfers.reduce((sum, [from, to, amount]) =>
-    from === payer && to === recipient ? sum + amount : from === recipient && to === payer ? sum - amount : sum, 0n);
+  let paid = 0n;
+
+  for (const [from, to, amount] of transfers) {
+    if (from === payer && to === recipient) {
+      paid += amount;
+    } else if (from === recipient && to === payer) {
+      paid -= amount;
+    }
+  }
 
   return paid > 0n ? paid : 0n;
 }

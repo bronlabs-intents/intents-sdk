@@ -206,6 +206,25 @@ describe('SolNetwork.getTxData routed native payments', () => {
     expect(tx?.from).toBe('');
   });
 
+  it('credits the full payment when the payer also closes one of its token accounts', async () => {
+    const RENT = 2_039_280;
+
+    mockTransaction(
+      {
+        fee: FEE,
+        preBalances: [1_000_000_000, 5_000_000_000, 0, RENT],
+        postBalances: [1_000_000_000 - FEE, 5_000_000_000 - AMOUNT + RENT, AMOUNT, 0],
+        preTokenBalances: [{ accountIndex: 3, mint: 'Usdc111111111111111111111111111111111111111', owner: OWNER, uiTokenAmount: { amount: '0' } }],
+        postTokenBalances: [],
+      },
+      [FEE_PAYER, OWNER, RECEIVER, WRAPPED],
+    );
+
+    const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', '0x0', RECEIVER, undefined, OWNER);
+
+    expect(tx).toMatchObject({ from: OWNER, amount: BigInt(AMOUNT) });
+  });
+
   it('resolves accounts loaded from an address lookup table', async () => {
     mockTransaction(
       {

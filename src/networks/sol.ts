@@ -5,10 +5,9 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from "./index.js";
 import { AttestationCapable, SignatureScheme, verifyEd25519 } from '../attestation.js';
-import { addDelta, log, memoize, provableContribution, sameAddress, settlement, UNATTRIBUTED } from "../utils.js";
+import { addDelta, chargeMint, log, memoize, provableContribution, sameAddress, settlement, UNATTRIBUTED } from "../utils.js";
 import { proxyFetch } from '../proxy.js';
 
-const WRAPPED_SOL_MINT = "So11111111111111111111111111111111111111112";
 
 function tokenDeltasByOwner(preTokenBalances: any[], postTokenBalances: any[]): Map<string, bigint> {
   const accounts = new Map<number, { owner?: string; delta: bigint }>();
@@ -29,11 +28,7 @@ function tokenDeltasByOwner(preTokenBalances: any[], postTokenBalances: any[]): 
     addDelta(deltas, owner ?? `account-${accountIndex}`, delta);
   }
 
-  const supplyChange = [...deltas.values()].reduce((total, delta) => total + delta, 0n);
-
-  if (supplyChange > 0n) {
-    addDelta(deltas, UNATTRIBUTED, -supplyChange);
-  }
+  chargeMint(deltas);
 
   return deltas;
 }
@@ -173,7 +168,7 @@ export class SolNetwork implements Network, AttestationCapable {
     const payers = new Set(accountKeys.filter(key => sameAddress(key, senderAddress)));
     const ownedBy = (balance: any) => !!balance?.owner && sameAddress(balance.owner, senderAddress);
 
-    for (const pre of (meta.preTokenBalances ?? []).filter((balance: any) => balance.mint === WRAPPED_SOL_MINT)) {
+    for (const pre of meta.preTokenBalances ?? []) {
       const post = (meta.postTokenBalances ?? []).find((balance: any) => balance.accountIndex === pre.accountIndex);
 
       if (ownedBy(pre) && (!post || ownedBy(post))) {

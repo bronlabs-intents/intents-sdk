@@ -100,6 +100,12 @@ export class TonNetwork implements Network, AttestationCapable {
     log.info(`Confirmations ${txHash}: ${currentSeqno - txSeqno}`);
 
     const transactions = await this.chainTransactions(tx);
+
+    if (transactions.length >= MAX_CHAIN_TRANSACTIONS) {
+      log.warn(`Transaction ${txHash} spawns ${MAX_CHAIN_TRANSACTIONS}+ transactions`);
+      return settlement("", "", "", 0n, confirmed, timestamp);
+    }
+
     const payer = this.rawAddress(senderAddress);
     const recipient = this.rawAddress(recipientAddress);
 
