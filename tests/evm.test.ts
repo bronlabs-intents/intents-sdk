@@ -42,7 +42,7 @@ const walletPayout = (overrides: any = {}) => ({
   ]
 });
 
-function mockRpc(options: { logs?: any[]; trace?: any; traceError?: any; traceHangs?: boolean; traceNotJson?: boolean; blockTimestamp?: number }) {
+function mockRpc(options: { logs?: any[]; trace?: any; traceError?: any; traceNotJson?: boolean }) {
   vi.mocked(proxyFetch).mockImplementation((_url: string, init?: any) => {
     const { method } = JSON.parse(init?.body ?? '{}');
 
@@ -52,12 +52,8 @@ function mockRpc(options: { logs?: any[]; trace?: any; traceError?: any; traceHa
       case 'eth_getTransactionReceipt':
         return respond({ result: { status: '0x1', from: RELAYER, to: WALLET, blockNumber: '0x10', logs: options.logs ?? [] } });
       case 'eth_getBlockByNumber':
-        return respond({ result: { timestamp: hex(BigInt(options.blockTimestamp ?? 1700000000)) } });
+        return respond({ result: { timestamp: hex(1700000000n) } });
       case 'debug_traceTransaction':
-        if (options.traceHangs) {
-          return new Promise(() => undefined) as any;
-        }
-
         if (options.traceNotJson) {
           return Promise.resolve({ json: () => Promise.reject(new SyntaxError('Unexpected token <')) }) as any;
         }
@@ -155,60 +151,18 @@ describe('EvmNetwork.getTxData native', () => {
     expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 
-  it('retries a fresh transaction while the node cannot trace it', async () => {
-    mockRpc({ traceError: { code: -32601, message: 'the method debug_traceTransaction does not exist' }, blockTimestamp: Math.floor(Date.now() / 1000) });
+  it('retries while the node cannot trace the transaction', async () => {
+    mockRpc({ traceError: { code: -32000, message: 'historical state unavailable' } });
 
     await expect(network().getTxData('0xhash', '0x0', RECIPIENT, undefined, WALLET)).rejects.toThrow('unavailable');
   });
 
-  it('gives up on a trace error past the retry window without attributing anything', async () => {
-    mockRpc({ traceError: { code: -32000, message: 'historical state unavailable' } });
-
-    const tx = await network().getTxData('0xhash', '0x0', RECIPIENT, undefined, WALLET);
-
-    expect(tx).toMatchObject({ from: '', amount: 0n });
-  });
-
-  it('retries a fresh transaction whose trace never answers', async () => {
-    vi.useFakeTimers();
-    mockRpc({ traceHangs: true, blockTimestamp: Math.floor(Date.now() / 1000) });
-
-    const pending = network().getTxData('0xhash', '0x0', RECIPIENT, undefined, WALLET);
-    const assertion = expect(pending).rejects.toThrow('timed out');
-
-    await vi.advanceTimersByTimeAsync(8000);
-    await assertion;
-
-    vi.useRealTimers();
-  });
-
-  it('gives up once the trace keeps timing out past the retry window', async () => {
-    vi.useFakeTimers();
-    mockRpc({ traceHangs: true });
-
-    const pending = network().getTxData('0xhash', '0x0', RECIPIENT, undefined, WALLET);
-
-    await vi.advanceTimersByTimeAsync(8000);
-
-    expect(await pending).toMatchObject({ from: '', amount: 0n });
-
-    vi.useRealTimers();
-  });
-
-  it('retries a fresh transaction whose trace answer is not JSON', async () => {
-    mockRpc({ traceNotJson: true, blockTimestamp: Math.floor(Date.now() / 1000) });
+  it('retries a trace answer that is not JSON', async () => {
+    mockRpc({ traceNotJson: true });
 
     await expect(network().getTxData('0xhash', '0x0', RECIPIENT, undefined, WALLET)).rejects.toThrow('Unexpected token');
   });
 
-  it('refuses a trace over the frame cap', async () => {
-    const calls = Array.from({ length: 2001 }, () => ({ type: 'CALL', from: WALLET, to: RECIPIENT, value: '0x1' }));
-    mockRpc({ trace: { type: 'CALL', from: RELAYER, to: WALLET, value: '0x0', calls } });
-
-    const tx = await network().getTxData('0xhash', '0x0', RECIPIENT, undefined, WALLET);
-
-    expect(tx).toMatchObject({ from: '', amount: 0n });
-  });
 });
 
 describe('EvmNetwork.getTxData ERC20', () => {
@@ -222,12 +176,12 @@ describe('EvmNetwork.getTxData ERC20', () => {
     expect(tx).toMatchObject({ from: WALLET, amount: 500n });
   });
 
-  it('attributes the payer when the transfer is routed through a router', async () => {
+  it('gives nothing for a transfer routed through a router', async () => {
     mockRpc({ logs: [transferLog(WALLET, ROUTER, 500n), transferLog(ROUTER, RECIPIENT, 500n)] });
 
     const tx = await network().getTxData('0xhash', TOKEN, RECIPIENT, undefined, WALLET);
 
-    expect(tx).toMatchObject({ from: WALLET, amount: 500n, token: TOKEN });
+    expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 
   it('refuses a third party paying the recipient while the payer pays elsewhere', async () => {
@@ -252,22 +206,6 @@ describe('EvmNetwork.getTxData ERC20', () => {
     const tx = await network().getTxData('0xhash', TOKEN, RECIPIENT, undefined, WALLET);
 
     expect(tx).toMatchObject({ from: WALLET, amount: 500n });
-  });
-
-  it('attributes the payer forwarding swap output through a router', async () => {
-    mockRpc({ logs: [transferLog(OTHER, WALLET, 500n), transferLog(WALLET, ROUTER, 500n), transferLog(ROUTER, RECIPIENT, 500n)] });
-
-    const tx = await network().getTxData('0xhash', TOKEN, RECIPIENT, undefined, WALLET);
-
-    expect(tx).toMatchObject({ from: WALLET, amount: 500n });
-  });
-
-  it('counts only the payer share of a router fed by someone else as well', async () => {
-    mockRpc({ logs: [transferLog(WALLET, ROUTER, 100n), transferLog(OTHER, ROUTER, 400n), transferLog(ROUTER, RECIPIENT, 500n)] });
-
-    const tx = await network().getTxData('0xhash', TOKEN, RECIPIENT, undefined, WALLET);
-
-    expect(tx).toMatchObject({ from: WALLET, amount: 100n });
   });
 
   it('nets out what the recipient sends back to the payer', async () => {

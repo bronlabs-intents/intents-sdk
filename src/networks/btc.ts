@@ -5,7 +5,7 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
-import { addDelta, log, provableContribution, settlement, UNATTRIBUTED } from '../utils.js';
+import { log, settlement } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 import { randomUUID } from 'node:crypto';
 
@@ -13,8 +13,6 @@ interface BtcTxInput {
   txid?: string;
   vout?: number;
   coinbase?: string;
-  txinwitness?: string[];
-  scriptSig?: { hex?: string };
 }
 
 interface BtcTransaction {
@@ -25,36 +23,16 @@ interface BtcTransaction {
     scriptPubKey: {
       address?: string;
       addresses?: string[];
-      type?: string;
     };
   }>;
   confirmations: number;
   blocktime?: number;
 }
 
-const SIGHASH_ALL = 0x01;
-
 const satoshis = (value: bigint | number | string): bigint => BigInt(Math.round(Number(value) * 1e8));
 
-// Any flag other than SIGHASH_ALL / taproot SIGHASH_DEFAULT lets a third party graft the payer's input
-// into a tx its owner never authorized, so attribution must fail closed on it.
-export function inputSignsAllOutputs(vin: BtcTxInput, prevOutType?: string): boolean {
-  const witness = (vin.txinwitness ?? []).map(h => Buffer.from(h, 'hex'));
-
-  if (prevOutType === 'witness_v1_taproot') {
-    const items = witness.length > 1 && witness[witness.length - 1]?.[0] === 0x50 ? witness.slice(0, -1) : witness;
-    if (items.length !== 1) return false;
-
-    const sig = items[0];
-    return sig.length === 64 || (sig.length === 65 && sig[64] === SIGHASH_ALL);
-  }
-
-  const scriptSigChunks = vin.scriptSig?.hex ? (bitcoin.script.decompile(Buffer.from(vin.scriptSig.hex, 'hex')) ?? []) : [];
-  const candidates = [...witness, ...scriptSigChunks.filter((c): c is Buffer => Buffer.isBuffer(c))];
-  const sigs = candidates.filter(b => b.length >= 9 && b.length <= 73 && b[0] === 0x30 && b[1] === b.length - 3);
-
-  return sigs.length > 0 && sigs.every(s => s[s.length - 1] === SIGHASH_ALL);
-}
+const outputAddress = (scriptPubKey: { address?: string; addresses?: string[] }): string | undefined =>
+  scriptPubKey.address ?? scriptPubKey.addresses?.[0];
 
 interface BtcUtxo {
   txid: string;
@@ -130,47 +108,26 @@ export class BtcNetwork implements Network, AttestationCapable {
         return settlement("", "", "", 0n, confirmed, timestamp);
       }
 
-      const inputs = await this.resolveInputs(tx);
+      const prevTxs = new Map<string, BtcTransaction>();
 
-      if (!inputs.filter(i => i.address === senderAddress).every(i => inputSignsAllOutputs(i.vin, i.prevOutType))) {
-        log.warn(`Transaction ${txHash} spends an input of ${senderAddress} that does not sign every output`);
+      await Promise.all([...new Set(tx.vin.map(v => v.txid!))].map(async txid => {
+        prevTxs.set(txid, await this.rpcCall('getrawtransaction', [txid, true]) as BtcTransaction);
+      }));
+
+      if (!tx.vin.every(vin => outputAddress(prevTxs.get(vin.txid!)!.vout[vin.vout!].scriptPubKey) === senderAddress)) {
+        log.warn(`Transaction ${txHash} spends inputs not owned by ${senderAddress}`);
         return settlement("", "", "", 0n, confirmed, timestamp);
       }
 
-      const deltas = new Map<string, bigint>();
+      const paid = tx.vout
+        .filter(vout => outputAddress(vout.scriptPubKey) === recipientAddress)
+        .reduce((sum, vout) => sum + satoshis(vout.value), 0n);
 
-      for (const input of inputs) {
-        addDelta(deltas, input.address, -input.value);
-      }
-
-      for (const vout of tx.vout) {
-        addDelta(deltas, vout.scriptPubKey.address ?? vout.scriptPubKey.addresses?.[0] ?? UNATTRIBUTED, satoshis(vout.value));
-      }
-
-      return settlement(senderAddress, recipientAddress, tokenAddress, provableContribution(deltas, new Set([senderAddress]), recipientAddress), confirmed, timestamp);
+      return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, timestamp);
     } catch (error) {
       log.warn(`Failed to get transaction data for ${txHash}: ${error}`);
       return;
     }
-  }
-
-  private async resolveInputs(tx: BtcTransaction): Promise<Array<{ vin: BtcTxInput; address: string; value: bigint; prevOutType?: string }>> {
-    const prevTxs = new Map<string, BtcTransaction>();
-
-    await Promise.all([...new Set(tx.vin.map(v => v.txid!))].map(async txid => {
-      prevTxs.set(txid, await this.rpcCall('getrawtransaction', [txid, true]) as BtcTransaction);
-    }));
-
-    return tx.vin.map(vin => {
-      const prevOut = prevTxs.get(vin.txid!)!.vout[vin.vout!];
-
-      return {
-        vin,
-        address: prevOut.scriptPubKey.address ?? prevOut.scriptPubKey.addresses?.[0] ?? UNATTRIBUTED,
-        value: satoshis(prevOut.value),
-        prevOutType: prevOut.scriptPubKey.type
-      };
-    });
   }
 
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {

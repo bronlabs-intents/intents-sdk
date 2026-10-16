@@ -4,12 +4,11 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from "./index.js";
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
-import { log, memoize, paymentFlow, settlement, Transfer } from "../utils.js";
+import { directPayment, log, memoize, settlement, Transfer } from "../utils.js";
 import { proxyFetch } from '../proxy.js';
 
 const TRC20_TRANSFER_TOPIC = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
-const MAX_INTERNAL_TRANSACTIONS = 2000;
 const VALUE_TRANSFER_NOTES = new Set(["call", "create", "suicide"]);
 
 const addrBody = (s: string): string => (s || "").replace(/^0x/, "").toLowerCase().slice(-40);
@@ -183,7 +182,7 @@ export class TrxNetwork implements Network, AttestationCapable {
   private payment(transfers: Transfer[], senderAddress: string, tokenAddress: string, recipientAddress: string, confirmed: boolean, timestamp: number): TransactionData {
     const payerBody = base58Body(senderAddress);
     const recipientBody = base58Body(recipientAddress);
-    const amount = payerBody && recipientBody ? paymentFlow(transfers, payerBody, recipientBody) : 0n;
+    const amount = payerBody && recipientBody ? directPayment(transfers, payerBody, recipientBody) : 0n;
 
     return settlement(senderAddress, recipientAddress, tokenAddress, amount, confirmed, timestamp);
   }
@@ -197,11 +196,6 @@ export class TrxNetwork implements Network, AttestationCapable {
 
     if (contract?.type !== "TriggerSmartContract") {
       log.warn(`Transaction ${txHash} moves no native TRX: ${contract?.type}`);
-      return [];
-    }
-
-    if (internalTransactions.length > MAX_INTERNAL_TRANSACTIONS) {
-      log.warn(`Transaction ${txHash} has ${internalTransactions.length} internal transactions, over the attribution cap of ${MAX_INTERNAL_TRANSACTIONS}`);
       return [];
     }
 

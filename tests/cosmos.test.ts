@@ -45,16 +45,16 @@ describe('CosmosNetwork.getTxData', () => {
     expect(tx).toMatchObject({ from: PAYER, to: RECIPIENT, amount: 700n, confirmed: true });
   });
 
-  it('attributes a payment a contract forwarded from the payer', async () => {
+  it('gives nothing for a payment a contract forwarded from the payer', async () => {
     const events = [...move(PAYER, CONTRACT, `700${DENOM}`), ...move(CONTRACT, RECIPIENT, `700${DENOM}`)];
 
     const tx = await mockedNetwork(events).getTxData('ab', '0x0', RECIPIENT, undefined, PAYER);
 
-    expect(tx).toMatchObject({ from: PAYER, to: RECIPIENT, amount: 700n });
+    expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 
   it('reads the order denom out of a multi-denom amount', async () => {
-    const events = [...move(PAYER, CONTRACT, `5uatom,700${DENOM}`), ...move(CONTRACT, RECIPIENT, `700${DENOM}`)];
+    const events = move(PAYER, RECIPIENT, `5uatom,700${DENOM}`);
 
     const tx = await mockedNetwork(events).getTxData('ab', '0x0', RECIPIENT, undefined, PAYER);
 
@@ -62,7 +62,7 @@ describe('CosmosNetwork.getTxData', () => {
   });
 
   it('does not count a network fee paid by another account against the payer', async () => {
-    const events = [...move(OTHER, FEE_COLLECTOR, `10${DENOM}`), ...move(PAYER, CONTRACT, `700${DENOM}`), ...move(CONTRACT, RECIPIENT, `700${DENOM}`)];
+    const events = [...move(OTHER, FEE_COLLECTOR, `10${DENOM}`), ...move(PAYER, RECIPIENT, `700${DENOM}`)];
 
     const tx = await mockedNetwork(events).getTxData('ab', '0x0', RECIPIENT, undefined, PAYER);
 
