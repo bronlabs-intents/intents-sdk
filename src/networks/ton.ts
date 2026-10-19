@@ -4,10 +4,10 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from "./index.js";
 import { AttestationCapable, SignatureScheme, verifyEd25519 } from '../attestation.js';
-import { log, memoize, paymentFlow, settlement, sleep, traceWithinRetryWindow, Transfer, UNATTRIBUTED, withinTraceRetryWindow } from "../utils.js";
+import { directPayment, log, memoize, settlement, sleep, Transfer, unpaid } from "../utils.js";
 import { proxyFetch } from '../proxy.js';
 
-const MAX_TRACE_TRANSACTIONS = 200;
+const MAX_CHAIN_TRANSACTIONS = 200;
 const JETTON_INTERNAL_TRANSFER = "0x178d4519";
 
 export class TonNetwork implements Network, AttestationCapable {
@@ -47,13 +47,12 @@ export class TonNetwork implements Network, AttestationCapable {
   async ping(): Promise<void> {
     await this.request("/v3/masterchainInfo");
 
-    const traces = await this.request(`/v3/traces?tx_hash=${encodeURIComponent(Buffer.alloc(32).toString("base64"))}&limit=1`);
+    const consumers = await this.request(`/v3/transactionsByMessage?msg_hash=${encodeURIComponent(Buffer.alloc(32).toString("base64"))}&direction=in&limit=1`);
+    const getMethod = await this.runGetMethod(`0:${"0".repeat(64)}`, "seqno", []);
 
-    if (!Array.isArray(traces.traces)) {
-      throw new Error("Indexer does not serve /v3/traces");
+    if (!Array.isArray(consumers.transactions) || typeof getMethod.exit_code !== "number") {
+      throw new Error("Indexer does not serve /v3/transactionsByMessage and /v3/runGetMethod");
     }
-
-    await this.runGetMethod(`0:${"0".repeat(64)}`, "seqno", []);
   }
 
   async getDecimals(tokenAddress: string): Promise<number> {
@@ -100,14 +99,19 @@ export class TonNetwork implements Network, AttestationCapable {
 
     log.info(`Confirmations ${txHash}: ${currentSeqno - txSeqno}`);
 
-    const transactions = await this.traceTransactions(txHash, tx.hash, timestamp);
+    const transactions = await this.chainTransactions(tx);
 
-    if (!transactions) {
-      return;
+    if (transactions.length >= MAX_CHAIN_TRANSACTIONS) {
+      log.warn(`Transaction ${txHash} spawns ${MAX_CHAIN_TRANSACTIONS}+ transactions`);
+      return unpaid(confirmed, timestamp);
     }
 
-    const transfers = tokenAddress === "0x0" ? this.nativeTransfers(transactions) : await this.jettonTransfers(transactions, this.rawAddress(tokenAddress));
-    const paid = paymentFlow(transfers, this.rawAddress(senderAddress), this.rawAddress(recipientAddress));
+    const payer = this.rawAddress(senderAddress);
+    const recipient = this.rawAddress(recipientAddress);
+
+    const paid = tokenAddress === "0x0"
+      ? directPayment(this.nativeTransfers(transactions), payer, recipient)
+      : await this.jettonPayment(transactions, this.rawAddress(tokenAddress), payer, recipient);
 
     return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, timestamp);
   }
@@ -138,10 +142,6 @@ export class TonNetwork implements Network, AttestationCapable {
       });
     } else {
       const jettonWalletAddress = await this.jettonWallet(this.rawAddress(tokenAddress), wallet.address.toRawString());
-
-      if (!jettonWalletAddress) {
-        throw new Error(`Jetton wallet not found for ${wallet.address.toString()}`);
-      }
 
       const jettonTransferBody = beginCell()
         .storeUint(0xf8a7ea5, 32)
@@ -203,36 +203,23 @@ export class TonNetwork implements Network, AttestationCapable {
     throw new Error(`Invalid private key length: ${secretKeyBytes.length}`);
   }
 
-  private async traceTransactions(txHash: string, rootHash: string, timestamp: number): Promise<any[] | undefined> {
-    const traceResp = await traceWithinRetryWindow(this.request(`/v3/traces?tx_hash=${encodeURIComponent(txHash)}&limit=1`), txHash, timestamp);
-    const trace = traceResp?.traces?.[0];
-    const fresh = withinTraceRetryWindow(timestamp);
+  private async chainTransactions(root: any): Promise<any[]> {
+    const transactions = [root];
 
-    if (!trace?.transactions && fresh) {
-      log.info(`Trace of ${txHash} is not indexed yet`);
-      return;
-    }
+    for (let i = 0; i < transactions.length && transactions.length < MAX_CHAIN_TRANSACTIONS; i++) {
+      for (const msg of transactions[i].out_msgs ?? []) {
+        if (!msg.destination) {
+          continue;
+        }
 
-    if (!trace?.transactions || trace.trace?.tx_hash !== rootHash) {
-      log.warn(`Transaction ${txHash} is not the root of an indexed trace; refusing to attribute the trace to it`);
-      return [];
-    }
+        const { transactions: [consumer] } = await this.request(`/v3/transactionsByMessage?msg_hash=${encodeURIComponent(msg.hash)}&direction=in&limit=1`);
 
-    if (trace.is_incomplete) {
-      if (fresh) {
-        log.info(`Trace of ${txHash} is not complete yet`);
-        return;
+        if (!consumer) {
+          throw new Error(`Message ${msg.hash} from ${transactions[i].account} is not processed yet`);
+        }
+
+        transactions.push(consumer);
       }
-
-      log.warn(`Trace of ${txHash} is still incomplete past the retry window`);
-      return [];
-    }
-
-    const transactions: any[] = Object.values(trace.transactions);
-
-    if (transactions.length > MAX_TRACE_TRANSACTIONS) {
-      log.warn(`Transaction ${txHash} trace has ${transactions.length} transactions, over the attribution cap of ${MAX_TRACE_TRANSACTIONS}`);
-      return [];
     }
 
     return transactions;
@@ -245,70 +232,33 @@ export class TonNetwork implements Network, AttestationCapable {
     );
   }
 
-  private async jettonTransfers(transactions: any[], master: string): Promise<Transfer[]> {
-    const transfers: Transfer[] = [];
+  private async jettonPayment(transactions: any[], master: string, payer: string, recipient: string): Promise<bigint> {
+    const transfers = transactions
+      .filter((tx: any) => !tx.description?.aborted && tx.in_msg?.opcode === JETTON_INTERNAL_TRANSFER)
+      .map((tx: any): Transfer => [this.rawAddress(tx.in_msg.source), this.rawAddress(tx.account), Cell.fromBase64(tx.in_msg.message_content.body).beginParse().skip(96).loadCoins()]);
 
-    for (const tx of transactions.filter((tx: any) => !tx.description?.aborted && tx.in_msg?.opcode === JETTON_INTERNAL_TRANSFER)) {
-      const decoded = tx.in_msg.message_content?.decoded;
-
-      if (decoded?.["@type"] !== "jetton_internal_transfer") {
-        log.warn(`Jetton transfer received by ${tx.account} is not decoded`);
-        continue;
-      }
-
-      const wallet = this.rawAddress(tx.account);
-      const owner = await this.jettonWalletOwner(wallet);
-
-      if (!owner || await this.jettonWallet(master, owner) !== wallet) {
-        continue;
-      }
-
-      const source = this.rawAddress(tx.in_msg.source);
-      const from = decoded.from?.["@type"] === "addr_std" ? this.rawAddress(`${decoded.from.workchain_id}:${decoded.from.address}`) : undefined;
-
-      if (source === master) {
-        transfers.push([UNATTRIBUTED, owner, BigInt(decoded.amount.value)]);
-      } else if (from && await this.jettonWallet(master, from) === source) {
-        transfers.push([from, owner, BigInt(decoded.amount.value)]);
-      }
-    }
-
-    return transfers;
+    return directPayment(transfers, await this.jettonWallet(master, payer), await this.jettonWallet(master, recipient));
   }
 
-  private jettonWallet(master: string, owner: string): Promise<string | undefined> {
+  private jettonWallet(master: string, owner: string): Promise<string> {
     return memoize(`ton-jetton-wallet-${master}-${owner}`, 86400 * 1000, async () => {
       const ownerSlice = beginCell().storeAddress(Address.parse(owner)).endCell().toBoc().toString("base64");
-      const stack = await this.runGetMethod(master, "get_wallet_address", [{ type: "slice", value: ownerSlice }]);
+      const { exit_code, stack } = await this.runGetMethod(master, "get_wallet_address", [{ type: "slice", value: ownerSlice }]);
 
-      return stack && this.stackAddress(stack[0]);
-    }, address => address !== undefined);
+      if (exit_code !== 0 && exit_code !== 1) {
+        throw new Error(`get_wallet_address of ${master} failed with exit code ${exit_code}`);
+      }
+
+      return Cell.fromBase64(stack[0].value).beginParse().loadAddress().toRawString();
+    });
   }
 
-  private jettonWalletOwner(wallet: string): Promise<string | undefined> {
-    return memoize(`ton-jetton-owner-${wallet}`, 86400 * 1000, async () => {
-      const stack = await this.runGetMethod(wallet, "get_wallet_data", []);
-
-      return stack && this.stackAddress(stack[1]);
-    }, address => address !== undefined);
-  }
-
-  private async runGetMethod(address: string, method: string, stack: any[]): Promise<any[] | undefined> {
-    const result = await this.request("/v3/runGetMethod", {
+  private runGetMethod(address: string, method: string, stack: any[]): Promise<any> {
+    return this.request("/v3/runGetMethod", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ address, method, stack })
     });
-
-    return result.exit_code === 0 || result.exit_code === 1 ? result.stack : undefined;
-  }
-
-  private stackAddress(item: any): string | undefined {
-    try {
-      return Cell.fromBase64(item.value).beginParse().loadAddress().toRawString();
-    } catch {
-      return undefined;
-    }
   }
 
   private rawAddress(address: string): string {

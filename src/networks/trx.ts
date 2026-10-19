@@ -4,12 +4,11 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from "./index.js";
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
-import { log, memoize, paymentFlow, settlement, Transfer } from "../utils.js";
+import { directPayment, log, memoize, settlement, Transfer, unpaid } from "../utils.js";
 import { proxyFetch } from '../proxy.js';
 
 const TRC20_TRANSFER_TOPIC = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 
-const MAX_INTERNAL_TRANSACTIONS = 2000;
 const VALUE_TRANSFER_NOTES = new Set(["call", "create", "suicide"]);
 
 const addrBody = (s: string): string => (s || "").replace(/^0x/, "").toLowerCase().slice(-40);
@@ -100,6 +99,10 @@ export class TrxNetwork implements Network, AttestationCapable {
       body: JSON.stringify({ num: 1 })
     }).then((res) => res.block[0].block_header.raw_data.number);
 
+    const payerBody = base58Body(senderAddress);
+    const recipientBody = base58Body(recipientAddress);
+    const paid = (transfers: Transfer[]): bigint => payerBody && recipientBody ? directPayment(transfers, payerBody, recipientBody) : 0n;
+
     if (tokenAddress === "0x0") {
       const response = await this.request(`/wallet/gettransactionbyid`, {
         method: "POST",
@@ -131,14 +134,14 @@ export class TrxNetwork implements Network, AttestationCapable {
       if (response.ret[0].contractRet != "SUCCESS") {
         log.warn(`Transaction ${txHash} failed on blockchain: ${response}`);
 
-        return settlement("", "", "", 0n, confirmed, timestamp);
+        return unpaid(confirmed, timestamp);
       }
 
       log.info(`Confirmations ${txHash}: ${currentBlock - blockNumber}`);
 
       const contract = response.raw_data?.contract?.[0];
 
-      return this.payment(this.nativeTransfers(txHash, contract, info.internal_transactions ?? []), senderAddress, tokenAddress, recipientAddress, confirmed, timestamp);
+      return settlement(senderAddress, recipientAddress, tokenAddress, paid(this.nativeTransfers(txHash, contract, info.internal_transactions ?? [])), confirmed, timestamp);
     }
 
     const response = await this.request(
@@ -161,7 +164,7 @@ export class TrxNetwork implements Network, AttestationCapable {
     if (response.receipt.result != "SUCCESS") {
       log.warn(`Transaction ${txHash} failed on blockchain: ${response}`);
 
-      return settlement("", "", "", 0n, confirmed, timestamp);
+      return unpaid(confirmed, timestamp);
     }
 
     const tokenBody = addrBody(toHex(tokenAddress));
@@ -177,15 +180,7 @@ export class TrxNetwork implements Network, AttestationCapable {
         return [addrBody(l.topics[1]), addrBody(l.topics[2]), data ? BigInt("0x" + data) : 0n];
       });
 
-    return this.payment(transfers, senderAddress, tokenAddress, recipientAddress, confirmed, timestamp);
-  }
-
-  private payment(transfers: Transfer[], senderAddress: string, tokenAddress: string, recipientAddress: string, confirmed: boolean, timestamp: number): TransactionData {
-    const payerBody = base58Body(senderAddress);
-    const recipientBody = base58Body(recipientAddress);
-    const amount = payerBody && recipientBody ? paymentFlow(transfers, payerBody, recipientBody) : 0n;
-
-    return settlement(senderAddress, recipientAddress, tokenAddress, amount, confirmed, timestamp);
+    return settlement(senderAddress, recipientAddress, tokenAddress, paid(transfers), confirmed, timestamp);
   }
 
   private nativeTransfers(txHash: string, contract: any, internalTransactions: any[]): Transfer[] {
@@ -197,11 +192,6 @@ export class TrxNetwork implements Network, AttestationCapable {
 
     if (contract?.type !== "TriggerSmartContract") {
       log.warn(`Transaction ${txHash} moves no native TRX: ${contract?.type}`);
-      return [];
-    }
-
-    if (internalTransactions.length > MAX_INTERNAL_TRANSACTIONS) {
-      log.warn(`Transaction ${txHash} has ${internalTransactions.length} internal transactions, over the attribution cap of ${MAX_INTERNAL_TRANSACTIONS}`);
       return [];
     }
 

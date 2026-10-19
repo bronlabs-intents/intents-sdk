@@ -5,28 +5,11 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
-import { addDelta, log, provableContribution, settlement } from '../utils.js';
+import { log, settlement, unpaid } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 
 const DEFAULT_ISSUED_CURRENCY_DECIMALS = 15;
 const RIPPLE_EPOCH_OFFSET = 946684800;
-
-type NodeKind = 'CreatedNode' | 'ModifiedNode' | 'DeletedNode';
-
-const affectedNodes = (meta: any, ledgerEntryType: string): [NodeKind, any][] =>
-  (meta.AffectedNodes ?? [])
-    .map((node: any) => Object.entries(node)[0] as [NodeKind, any])
-    .filter(([, entry]: [NodeKind, any]) => entry?.LedgerEntryType === ledgerEntryType);
-
-function balanceChange(kind: NodeKind, entry: any, read: (fields: any) => bigint | undefined): bigint {
-  const previous = kind === 'CreatedNode' ? 0n : read(entry.PreviousFields) ?? (kind === 'DeletedNode' ? read(entry.FinalFields) : undefined);
-
-  if (previous === undefined) {
-    return 0n;
-  }
-
-  return (kind === 'DeletedNode' ? 0n : read(entry.FinalFields ?? entry.NewFields) ?? 0n) - previous;
-}
 
 export class XrpNetwork implements Network, AttestationCapable {
   private readonly rpcUrl: string;
@@ -90,54 +73,22 @@ export class XrpNetwork implements Network, AttestationCapable {
 
     log.info(`Confirmations ${txHash}: ${currentLedger - result.ledger_index}`);
 
-    if (!meta || meta.TransactionResult !== 'tesSUCCESS' || result.TransactionType !== 'Payment' || result.Account !== senderAddress) {
-      log.warn(`Transaction ${txHash} is not a successful Payment signed by ${senderAddress}: ${result.TransactionType} ${meta?.TransactionResult} ${result.Account}`);
-      return settlement("", "", "", 0n, confirmed, timestamp);
+    if (meta?.TransactionResult !== 'tesSUCCESS' || result.TransactionType !== 'Payment' || result.Account !== senderAddress || result.Destination !== recipientAddress) {
+      log.warn(`Transaction ${txHash} is not a successful Payment from ${senderAddress} to ${recipientAddress}`);
+      return unpaid(confirmed, timestamp);
     }
 
-    const deltas = tokenAddress === "0x0" ? this.nativeDeltas(meta, result) : this.issuedDeltas(meta, tokenAddress, await this.getDecimals(tokenAddress));
+    const delivered = meta.delivered_amount;
 
-    return settlement(senderAddress, recipientAddress, tokenAddress, provableContribution(deltas, new Set([senderAddress]), recipientAddress), confirmed, timestamp);
-  }
-
-  private nativeDeltas(meta: any, tx: any): Map<string, bigint> {
-    const deltas = new Map<string, bigint>();
-    const drops = (fields: any) => fields?.Balance === undefined ? undefined : BigInt(fields.Balance);
-
-    for (const [kind, entry] of affectedNodes(meta, 'AccountRoot')) {
-      addDelta(deltas, (entry.FinalFields ?? entry.NewFields).Account, balanceChange(kind, entry, drops));
+    if (tokenAddress === "0x0") {
+      return settlement(senderAddress, recipientAddress, tokenAddress, typeof delivered === 'string' ? BigInt(delivered) : 0n, confirmed, timestamp);
     }
 
-    addDelta(deltas, tx.Account, BigInt(tx.Fee ?? 0));
+    const paid = delivered?.currency !== undefined && `${delivered.currency}.${delivered.issuer}` === tokenAddress
+      ? BigInt(new Big(delivered.value).times(new Big(10).pow(await this.getDecimals(tokenAddress))).toFixed(0))
+      : 0n;
 
-    return deltas;
-  }
-
-  private issuedDeltas(meta: any, tokenAddress: string, decimals: number): Map<string, bigint> {
-    const { currency, issuer } = this.parseTokenAddress(tokenAddress);
-    const deltas = new Map<string, bigint>();
-
-    for (const [kind, entry] of affectedNodes(meta, 'RippleState')) {
-      const fields = entry.FinalFields ?? entry.NewFields;
-      const high = fields.HighLimit?.issuer;
-      const low = fields.LowLimit?.issuer;
-
-      if (fields.Balance?.currency !== currency || (high !== issuer && low !== issuer)) {
-        continue;
-      }
-
-      const sign = high === issuer ? 1n : -1n;
-      const units = (f: any) => f?.Balance?.value === undefined
-        ? undefined
-        : sign * BigInt(new Big(f.Balance.value).times(new Big(10).pow(decimals)).toFixed(0));
-
-      const change = balanceChange(kind, entry, units);
-
-      addDelta(deltas, high === issuer ? low : high, change);
-      addDelta(deltas, issuer, -change);
-    }
-
-    return deltas;
+    return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, timestamp);
   }
 
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {

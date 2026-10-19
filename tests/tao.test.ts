@@ -134,12 +134,12 @@ describe('TaoNetwork.getTxData', () => {
     expect(tx).toMatchObject({ from: SENDER, amount: 3n });
   });
 
-  it('attributes a payment routed through another account', async () => {
+  it('gives nothing for a payment routed through another account', async () => {
     const { network } = mockedNetwork(succeeded(transfer(SENDER_KEY, OTHER_KEY, 5n), transfer(OTHER_KEY, RECIPIENT_KEY, 5n)));
 
     const tx = await network.getTxData(MAINNET_TRANSFER_HASH, '0x0', RECIPIENT, undefined, SENDER, notBeforeBlocksAgo(20));
 
-    expect(tx).toMatchObject({ from: SENDER, amount: 5n });
+    expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 
   it('rejects a failed extrinsic', async () => {

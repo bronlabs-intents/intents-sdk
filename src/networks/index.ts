@@ -33,9 +33,6 @@ export interface Network {
   // tokenId and, on mint-hosting networks, envelopeFrom MUST be populated or the oracle's id and method-2 checks fail.
   getTxData(txHash: string, tokenAddress: string, recipientAddress: string, tokenId: bigint | undefined, senderAddress: string, notBefore?: number): Promise<TransactionData | undefined>;
 
-  /**
-   * @deprecated Signs from a raw private key — do not use in production. Kept for local tooling/tests.
-   */
   transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string>;
 
   readonly retryDelay: number;

@@ -116,12 +116,12 @@ describe('TrxNetwork.getTxData native', () => {
 });
 
 describe('TrxNetwork.getTxData TRC20', () => {
-  it('attributes the payer when the transfer is routed through a router', async () => {
+  it('gives nothing when the transfer is routed through a router', async () => {
     const logs = [transferLog(WALLET, ROUTER, 500n), transferLog(ROUTER, RECIPIENT, 500n)];
 
     const tx = await mockedNetwork({ logs }).getTxData('hash', fromHex(TOKEN), fromHex(RECIPIENT), undefined, fromHex(WALLET));
 
-    expect(tx).toMatchObject({ from: fromHex(WALLET), to: fromHex(RECIPIENT), amount: 500n });
+    expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 
   it('refuses when the expected payer is not a TRON address', async () => {

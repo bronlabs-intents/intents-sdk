@@ -4,7 +4,7 @@ import { blake2AsHex, decodeAddress, encodeAddress } from '@polkadot/util-crypto
 
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifyEd25519 } from '../attestation.js';
-import { log, paymentFlow, settlement, Transfer as FlowEdge } from '../utils.js';
+import { directPayment, log, settlement, Transfer, unpaid } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 
 const SS58_PREFIX = 42;
@@ -26,7 +26,7 @@ interface ExtrinsicLocation {
   index: number;
 }
 
-interface Transfer {
+interface BalanceTransfer {
   from: Uint8Array;
   to: Uint8Array;
   amount: bigint;
@@ -34,7 +34,7 @@ interface Transfer {
 
 interface ExtrinsicOutcome {
   failed: boolean;
-  transfers: Transfer[];
+  transfers: BalanceTransfer[];
 }
 
 export function taoAccountId(address: string): Uint8Array | undefined {
@@ -102,7 +102,7 @@ export class TaoNetwork implements Network, AttestationCapable {
 
     if (tokenAddress !== '0x0' || !TX_HASH.test(hash) || !recipient || !sender) {
       log.warn(`TAO tx ${txHash} rejected: token ${tokenAddress}, recipient ${recipientAddress}, sender ${senderAddress}`);
-      return settlement('', '', '', 0n, true, 0);
+      return unpaid(true, 0);
     }
 
     const location = await this.locate(hash, notBefore);
@@ -118,11 +118,11 @@ export class TaoNetwork implements Network, AttestationCapable {
 
     if (outcome.failed) {
       log.warn(`TAO tx ${txHash} failed on chain in block ${location.blockHash}`);
-      return settlement('', '', '', 0n, true, timestamp);
+      return unpaid(true, timestamp);
     }
 
-    const transfers = outcome.transfers.map((t): FlowEdge => [u8aToHex(t.from), u8aToHex(t.to), t.amount]);
-    const paid = paymentFlow(transfers, u8aToHex(sender), u8aToHex(recipient));
+    const transfers = outcome.transfers.map((t): Transfer => [u8aToHex(t.from), u8aToHex(t.to), t.amount]);
+    const paid = directPayment(transfers, u8aToHex(sender), u8aToHex(recipient));
 
     if (paid === 0n) {
       log.warn(`TAO tx ${txHash} moves nothing from ${senderAddress} to ${recipientAddress}`);
