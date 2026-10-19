@@ -3,7 +3,7 @@ import { ethers } from 'ethers';
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
 import { decodeErc6909TransferAmount } from '../token.js';
-import { directPayment, log, memoize, sameAddress, settlement, Transfer, unpaid } from '../utils.js';
+import { directPayment, log, memoize, settlement, Transfer, unpaid } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 
 const ERC20_TRANSFER_TOPIC = ethers.id('Transfer(address,address,uint256)');
@@ -145,6 +145,7 @@ export class EvmNetwork implements Network, AttestationCapable {
       return unpaid(confirmed, timestamp);
     }
 
+    const token = tokenAddress.toLowerCase();
     const payer = senderAddress.toLowerCase();
     const recipient = recipientAddress.toLowerCase();
 
@@ -186,7 +187,7 @@ export class EvmNetwork implements Network, AttestationCapable {
       const idHex = '0x' + tokenId.toString(16).padStart(64, '0');
 
       const transferLogs = receipt.logs.filter(l =>
-        sameAddress(l.address, tokenAddress) &&
+        l.address?.toLowerCase() === token &&
         l.topics[0]?.toLowerCase() === ERC6909_TRANSFER_TOPIC &&
         l.topics.length === 4 &&
         l.topics[3]?.toLowerCase() === idHex
@@ -196,7 +197,7 @@ export class EvmNetwork implements Network, AttestationCapable {
     }
 
     const transferLogs = receipt.logs.filter(l =>
-      sameAddress(l.address, tokenAddress) &&
+      l.address?.toLowerCase() === token &&
       l.topics[0]?.toLowerCase() === ERC20_TRANSFER_TOPIC &&
       l.topics.length === 3
     );
@@ -232,7 +233,9 @@ export class EvmNetwork implements Network, AttestationCapable {
         transfers.push([frame.from.toLowerCase(), frame.to.toLowerCase(), value]);
       }
 
-      (frame.calls ?? []).forEach(walk);
+      for (const call of frame.calls ?? []) {
+        walk(call);
+      }
     };
 
     walk(result);

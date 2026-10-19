@@ -111,7 +111,7 @@ export class TonNetwork implements Network, AttestationCapable {
 
     const paid = tokenAddress === "0x0"
       ? directPayment(this.nativeTransfers(transactions), payer, recipient)
-      : await this.jettonPayment(transactions, this.rawAddress(tokenAddress), payer, recipient);
+      : await this.jettonPayment(transactions, tokenAddress, payer, recipient);
 
     return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, timestamp);
   }
@@ -141,7 +141,7 @@ export class TonNetwork implements Network, AttestationCapable {
         ]
       });
     } else {
-      const jettonWalletAddress = await this.jettonWallet(this.rawAddress(tokenAddress), wallet.address.toRawString());
+      const jettonWalletAddress = await this.jettonWallet(tokenAddress, wallet.address.toRawString());
 
       const jettonTransferBody = beginCell()
         .storeUint(0xf8a7ea5, 32)
@@ -240,7 +240,9 @@ export class TonNetwork implements Network, AttestationCapable {
     return directPayment(transfers, await this.jettonWallet(master, payer), await this.jettonWallet(master, recipient));
   }
 
-  private jettonWallet(master: string, owner: string): Promise<string> {
+  private jettonWallet(token: string, owner: string): Promise<string> {
+    const master = this.rawAddress(token);
+
     return memoize(`ton-jetton-wallet-${master}-${owner}`, 86400 * 1000, async () => {
       const ownerSlice = beginCell().storeAddress(Address.parse(owner)).endCell().toBoc().toString("base64");
       const { exit_code, stack } = await this.runGetMethod(master, "get_wallet_address", [{ type: "slice", value: ownerSlice }]);
