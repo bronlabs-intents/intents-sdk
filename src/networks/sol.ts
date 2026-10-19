@@ -5,9 +5,8 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from "./index.js";
 import { AttestationCapable, SignatureScheme, verifyEd25519 } from '../attestation.js';
-import { addDelta, chargeMint, log, memoize, provableContribution, sameAddress, settlement, UNATTRIBUTED } from "../utils.js";
+import { addDelta, chargeMint, log, memoize, provableContribution, settlement, UNATTRIBUTED, unpaid } from "../utils.js";
 import { proxyFetch } from '../proxy.js';
-
 
 function tokenDeltasByOwner(preTokenBalances: any[], postTokenBalances: any[]): Map<string, bigint> {
   const accounts = new Map<number, { owner?: string; delta: bigint }>();
@@ -131,7 +130,7 @@ export class SolNetwork implements Network, AttestationCapable {
     if (result.meta?.err) {
       log.warn(`Transaction ${txHash} failed on blockchain: ${result}`);
 
-      return settlement("", "", "", 0n, confirmed, timestamp);
+      return unpaid(confirmed, timestamp);
     }
 
     log.info(`Confirmations ${txHash}: ${currentBlock - blockNumber}`);
@@ -151,7 +150,7 @@ export class SolNetwork implements Network, AttestationCapable {
       result.meta.postTokenBalances.filter((balance: any) => balance.mint === tokenAddress)
     );
 
-    const payers = new Set([...deltas.keys()].filter(owner => sameAddress(owner, senderAddress)));
+    const payers = new Set([...deltas.keys()].filter(owner => owner === senderAddress));
     const paid = provableContribution(deltas, payers, recipientAddress);
 
     return paid > 0n
@@ -165,8 +164,8 @@ export class SolNetwork implements Network, AttestationCapable {
     accountKeys.forEach((key, i) => addDelta(deltas, key, BigInt(meta.postBalances[i]) - BigInt(meta.preBalances[i])));
     addDelta(deltas, accountKeys[0], BigInt(meta.fee ?? 0));
 
-    const payers = new Set(accountKeys.filter(key => sameAddress(key, senderAddress)));
-    const ownedBy = (balance: any) => !!balance?.owner && sameAddress(balance.owner, senderAddress);
+    const payers = new Set(accountKeys.filter(key => key === senderAddress));
+    const ownedBy = (balance: any) => balance?.owner === senderAddress;
 
     for (const pre of meta.preTokenBalances ?? []) {
       const post = (meta.postTokenBalances ?? []).find((balance: any) => balance.accountIndex === pre.accountIndex);

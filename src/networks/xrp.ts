@@ -5,7 +5,7 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
-import { log, settlement } from '../utils.js';
+import { log, settlement, unpaid } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 
 const DEFAULT_ISSUED_CURRENCY_DECIMALS = 15;
@@ -75,7 +75,7 @@ export class XrpNetwork implements Network, AttestationCapable {
 
     if (meta?.TransactionResult !== 'tesSUCCESS' || result.TransactionType !== 'Payment' || result.Account !== senderAddress || result.Destination !== recipientAddress) {
       log.warn(`Transaction ${txHash} is not a successful Payment from ${senderAddress} to ${recipientAddress}`);
-      return settlement("", "", "", 0n, confirmed, timestamp);
+      return unpaid(confirmed, timestamp);
     }
 
     const delivered = meta.delivered_amount;

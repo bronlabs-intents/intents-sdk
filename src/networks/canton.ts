@@ -2,7 +2,7 @@ import * as ed25519 from '@noble/ed25519';
 
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme } from '../attestation.js';
-import { log, expRetry, memoize, settlement } from '../utils.js';
+import { expRetry, log, memoize, settlement, unpaid } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 import { Big } from 'big.js';
 import { ethers } from 'ethers';
@@ -142,7 +142,7 @@ export class CantonNetwork implements Network, AttestationCapable {
     if (!isSuccess) {
       log.error(`Transaction ${txHash} failed: ${(transferFactoryResultTag ?? 'Unknown')}`);
 
-      return settlement("", "", "", 0n, false, timestamp);
+      return unpaid(false, timestamp);
     }
 
     if (tokenAddress === '0x0') {
@@ -242,7 +242,7 @@ export class CantonNetwork implements Network, AttestationCapable {
     } else {
       log.error(`Transaction ${txHash} has wrong tokenResultTag: ${tokenResultTag}`);
 
-      return settlement("", "", "", 0n, true, timestamp);
+      return unpaid(true, timestamp);
     }
   }
 

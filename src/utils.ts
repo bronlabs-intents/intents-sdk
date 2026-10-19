@@ -96,6 +96,8 @@ export function settlement(from: string, to: string, token: string, amount: bigi
     : { from: "", to: "", token: "", amount: 0n, confirmed, timestamp };
 }
 
+export const unpaid = (confirmed: boolean, timestamp: number): TransactionData => settlement("", "", "", 0n, confirmed, timestamp);
+
 export function directPayment(transfers: Transfer[], payer: string, recipient: string): bigint {
   let paid = 0n;
 

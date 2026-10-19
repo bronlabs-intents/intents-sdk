@@ -5,7 +5,7 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
-import { log, settlement } from '../utils.js';
+import { log, settlement, unpaid } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 import { randomUUID } from 'node:crypto';
 
@@ -28,8 +28,6 @@ interface BtcTransaction {
   confirmations: number;
   blocktime?: number;
 }
-
-const satoshis = (value: bigint | number | string): bigint => BigInt(Math.round(Number(value) * 1e8));
 
 const outputAddress = (scriptPubKey: { address?: string; addresses?: string[] }): string | undefined =>
   scriptPubKey.address ?? scriptPubKey.addresses?.[0];
@@ -105,7 +103,7 @@ export class BtcNetwork implements Network, AttestationCapable {
       const timestamp = tx.blocktime ?? 0;
 
       if (tx.vin.some(v => v.coinbase || !v.txid || v.vout === undefined)) {
-        return settlement("", "", "", 0n, confirmed, timestamp);
+        return unpaid(confirmed, timestamp);
       }
 
       const prevTxs = new Map<string, BtcTransaction>();
@@ -116,12 +114,12 @@ export class BtcNetwork implements Network, AttestationCapable {
 
       if (!tx.vin.every(vin => outputAddress(prevTxs.get(vin.txid!)!.vout[vin.vout!].scriptPubKey) === senderAddress)) {
         log.warn(`Transaction ${txHash} spends inputs not owned by ${senderAddress}`);
-        return settlement("", "", "", 0n, confirmed, timestamp);
+        return unpaid(confirmed, timestamp);
       }
 
       const paid = tx.vout
         .filter(vout => outputAddress(vout.scriptPubKey) === recipientAddress)
-        .reduce((sum, vout) => sum + satoshis(vout.value), 0n);
+        .reduce((sum, vout) => sum + BigInt(Math.round(Number(vout.value) * 1e8)), 0n);
 
       return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, timestamp);
     } catch (error) {

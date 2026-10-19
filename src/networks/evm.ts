@@ -3,7 +3,7 @@ import { ethers } from 'ethers';
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
 import { decodeErc6909TransferAmount } from '../token.js';
-import { directPayment, log, memoize, sameAddress, settlement, Transfer } from '../utils.js';
+import { directPayment, log, memoize, sameAddress, settlement, Transfer, unpaid } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 
 const ERC20_TRANSFER_TOPIC = ethers.id('Transfer(address,address,uint256)');
@@ -12,7 +12,6 @@ const ERC6909_DECIMALS_SELECTOR = '0x3f47e662';
 const ERC165_SUPPORTS_INTERFACE_SELECTOR = '0x01ffc9a7';
 const ERC6909_INTERFACE_ID = '0x0f632fb3';
 const VALUE_FRAME_TYPES = new Set(['CALL', 'CREATE', 'CREATE2', 'SELFDESTRUCT']);
-const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 type RpcResponse<T> = { result?: T; error?: { code: number; message: string } };
 
@@ -143,7 +142,7 @@ export class EvmNetwork implements Network, AttestationCapable {
     if (receipt.status !== '0x1') {
       log.warn(`Transaction ${txHash} failed on blockchain: ${JSON.stringify(receipt)}`);
 
-      return settlement("", "", "", 0n, confirmed, timestamp);
+      return unpaid(confirmed, timestamp);
     }
 
     const payer = senderAddress.toLowerCase();
@@ -163,10 +162,17 @@ export class EvmNetwork implements Network, AttestationCapable {
 
       return paid > 0n
         ? payment(senderAddress, paid, extra)
-        : payment(ZERO_ADDRESS, directPayment(transfers, ZERO_ADDRESS, recipient), extra);
+        : payment(ethers.ZeroAddress, directPayment(transfers, ethers.ZeroAddress, recipient), extra);
     };
 
     if (tokenAddress === "0x0") {
+      const { result: tx } = await this.rpc<{ value: string }>("eth_getTransactionByHash", [txHash]);
+      const value = BigInt(tx?.value ?? 0);
+
+      if (receipt.from.toLowerCase() === payer && receipt.to?.toLowerCase() === recipient && value > 0n) {
+        return payment(senderAddress, value);
+      }
+
       return payment(senderAddress, directPayment(await this.nativeTransfers(txHash), payer, recipient));
     }
 

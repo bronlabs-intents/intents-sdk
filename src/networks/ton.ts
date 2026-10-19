@@ -4,7 +4,7 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from "./index.js";
 import { AttestationCapable, SignatureScheme, verifyEd25519 } from '../attestation.js';
-import { directPayment, log, memoize, settlement, sleep, Transfer } from "../utils.js";
+import { directPayment, log, memoize, settlement, sleep, Transfer, unpaid } from "../utils.js";
 import { proxyFetch } from '../proxy.js';
 
 const MAX_CHAIN_TRANSACTIONS = 200;
@@ -103,7 +103,7 @@ export class TonNetwork implements Network, AttestationCapable {
 
     if (transactions.length >= MAX_CHAIN_TRANSACTIONS) {
       log.warn(`Transaction ${txHash} spawns ${MAX_CHAIN_TRANSACTIONS}+ transactions`);
-      return settlement("", "", "", 0n, confirmed, timestamp);
+      return unpaid(confirmed, timestamp);
     }
 
     const payer = this.rawAddress(senderAddress);

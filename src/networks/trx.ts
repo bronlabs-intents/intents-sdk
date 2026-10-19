@@ -4,7 +4,7 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from "./index.js";
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
-import { directPayment, log, memoize, settlement, Transfer } from "../utils.js";
+import { directPayment, log, memoize, settlement, Transfer, unpaid } from "../utils.js";
 import { proxyFetch } from '../proxy.js';
 
 const TRC20_TRANSFER_TOPIC = "ddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
@@ -134,7 +134,7 @@ export class TrxNetwork implements Network, AttestationCapable {
       if (response.ret[0].contractRet != "SUCCESS") {
         log.warn(`Transaction ${txHash} failed on blockchain: ${response}`);
 
-        return settlement("", "", "", 0n, confirmed, timestamp);
+        return unpaid(confirmed, timestamp);
       }
 
       log.info(`Confirmations ${txHash}: ${currentBlock - blockNumber}`);
@@ -164,7 +164,7 @@ export class TrxNetwork implements Network, AttestationCapable {
     if (response.receipt.result != "SUCCESS") {
       log.warn(`Transaction ${txHash} failed on blockchain: ${response}`);
 
-      return settlement("", "", "", 0n, confirmed, timestamp);
+      return unpaid(confirmed, timestamp);
     }
 
     const tokenBody = addrBody(toHex(tokenAddress));

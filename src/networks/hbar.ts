@@ -2,7 +2,7 @@ import { ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
-import { addDelta, chargeMint, log, provableContribution, settlement, sleep } from '../utils.js';
+import { addDelta, chargeMint, log, provableContribution, settlement, sleep, unpaid } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 
 interface HbarTransfer {
@@ -193,7 +193,7 @@ export class HbarNetwork implements Network, AttestationCapable {
 
     if (primary.result !== 'SUCCESS') {
       log.warn(`Transaction ${txHash} failed: ${primary.result}`);
-      return settlement("", "", "", 0n, confirmed, consensusSeconds(primary));
+      return unpaid(confirmed, consensusSeconds(primary));
     }
 
     const recipient = await this.resolveAccountId(recipientAddress);
@@ -207,7 +207,7 @@ export class HbarNetwork implements Network, AttestationCapable {
 
     if (!expectedSender) {
       log.warn(`HBAR alias ${senderAddress} has no account on the mirror node; it cannot have paid ${txHash}`);
-      return settlement("", "", "", 0n, confirmed, consensusSeconds(primary));
+      return unpaid(confirmed, consensusSeconds(primary));
     }
 
     const successful = entries.filter(t => t.result === 'SUCCESS');

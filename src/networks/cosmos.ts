@@ -1,6 +1,6 @@
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
-import { directPayment, log, settlement, Transfer } from '../utils.js';
+import { directPayment, log, settlement, Transfer, unpaid } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 import { DirectSecp256k1Wallet } from '@cosmjs/proto-signing';
 import { GasPrice, SigningStargateClient } from '@cosmjs/stargate';
@@ -73,7 +73,7 @@ export class CosmosNetwork implements Network, AttestationCapable {
     if (result.tx_result.code !== 0) {
       log.warn(`Transaction ${txHash} failed on blockchain: code=${result.tx_result.code}`);
 
-      return settlement("", "", "", 0n, false, 0)
+      return unpaid(false, 0);
     }
 
     let denom = tokenAddress;

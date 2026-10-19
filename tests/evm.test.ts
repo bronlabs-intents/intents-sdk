@@ -42,7 +42,7 @@ const walletPayout = (overrides: any = {}) => ({
   ]
 });
 
-function mockRpc(options: { logs?: any[]; trace?: any; traceError?: any; traceNotJson?: boolean }) {
+function mockRpc(options: { logs?: any[]; trace?: any; traceError?: any; traceNotJson?: boolean; envelope?: { from: string; to: string; value: bigint } }) {
   vi.mocked(proxyFetch).mockImplementation((_url: string, init?: any) => {
     const { method } = JSON.parse(init?.body ?? '{}');
 
@@ -50,7 +50,9 @@ function mockRpc(options: { logs?: any[]; trace?: any; traceError?: any; traceNo
 
     switch (method) {
       case 'eth_getTransactionReceipt':
-        return respond({ result: { status: '0x1', from: RELAYER, to: WALLET, blockNumber: '0x10', logs: options.logs ?? [] } });
+        return respond({ result: { status: '0x1', from: options.envelope?.from ?? RELAYER, to: options.envelope?.to ?? WALLET, blockNumber: '0x10', logs: options.logs ?? [] } });
+      case 'eth_getTransactionByHash':
+        return respond({ result: { value: hex(options.envelope?.value ?? 0n) } });
       case 'eth_getBlockByNumber':
         return respond({ result: { timestamp: hex(1700000000n) } });
       case 'debug_traceTransaction':
@@ -88,6 +90,22 @@ describe('EvmNetwork.getTxData native', () => {
     const tx = await network().getTxData('0xhash', '0x0', RECIPIENT, undefined, WALLET);
 
     expect(tx).toMatchObject({ from: WALLET, amount: AMOUNT });
+  });
+
+  it('credits a plain transfer from the payer without tracing it', async () => {
+    mockRpc({ envelope: { from: WALLET, to: RECIPIENT, value: AMOUNT }, traceError: { code: -32000, message: 'missing trie node' } });
+
+    const tx = await network().getTxData('0xhash', '0x0', RECIPIENT, undefined, WALLET);
+
+    expect(tx).toMatchObject({ from: WALLET, to: RECIPIENT, amount: AMOUNT });
+  });
+
+  it('traces a plain transfer the payer did not send', async () => {
+    mockRpc({ envelope: { from: OTHER, to: RECIPIENT, value: AMOUNT }, trace: { type: 'CALL', from: OTHER, to: RECIPIENT, value: hex(AMOUNT) } });
+
+    const tx = await network().getTxData('0xhash', '0x0', RECIPIENT, undefined, WALLET);
+
+    expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 
   it('attributes a direct transfer from the payer', async () => {
