@@ -124,10 +124,6 @@ export class TaoNetwork implements Network, AttestationCapable {
     const transfers = outcome.transfers.map((t): Transfer => [u8aToHex(t.from), u8aToHex(t.to), t.amount]);
     const paid = directPayment(transfers, u8aToHex(sender), u8aToHex(recipient));
 
-    if (paid === 0n) {
-      log.warn(`TAO tx ${txHash} moves nothing from ${senderAddress} to ${recipientAddress}`);
-    }
-
     return settlement(senderAddress, recipientAddress, tokenAddress, paid, true, timestamp);
   }
 

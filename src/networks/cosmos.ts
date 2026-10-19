@@ -101,10 +101,6 @@ export class CosmosNetwork implements Network, AttestationCapable {
 
     const paid = directPayment(transfers, senderAddress.toLowerCase(), recipientAddress.toLowerCase());
 
-    if (paid === 0n) {
-      log.warn(`Transaction ${txHash} moves no ${denom} from ${senderAddress} to ${recipientAddress}`);
-    }
-
     return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, timestamp);
   }
 

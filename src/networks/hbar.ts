@@ -221,10 +221,6 @@ export class HbarNetwork implements Network, AttestationCapable {
 
     const paid = provableContribution(deltas, new Set([expectedSender]), recipient);
 
-    if (paid === 0n) {
-      log.warn(`Transaction ${txHash} does not pay ${tokenAddress} from ${senderAddress} to ${recipientAddress}`);
-    }
-
     return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, Math.max(...successful.map(consensusSeconds)));
   }
 

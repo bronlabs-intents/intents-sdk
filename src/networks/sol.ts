@@ -150,12 +150,15 @@ export class SolNetwork implements Network, AttestationCapable {
       result.meta.postTokenBalances.filter((balance: any) => balance.mint === tokenAddress)
     );
 
-    const payers = new Set([...deltas.keys()].filter(owner => owner === senderAddress));
-    const paid = provableContribution(deltas, payers, recipientAddress);
+    const paid = provableContribution(deltas, new Set([senderAddress]), recipientAddress);
 
-    return paid > 0n
-      ? settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, timestamp)
-      : settlement("", recipientAddress, tokenAddress, provableContribution(deltas, new Set([...payers, UNATTRIBUTED]), recipientAddress), confirmed, timestamp, { envelopeFrom: accountKeys[0] });
+    if (paid > 0n) {
+      return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, timestamp);
+    }
+
+    const minted = provableContribution(deltas, new Set([senderAddress, UNATTRIBUTED]), recipientAddress);
+
+    return settlement("", recipientAddress, tokenAddress, minted, confirmed, timestamp, { envelopeFrom: accountKeys[0] });
   }
 
   private nativeContribution(meta: any, accountKeys: string[], senderAddress: string, recipientAddress: string): bigint {
@@ -164,7 +167,7 @@ export class SolNetwork implements Network, AttestationCapable {
     accountKeys.forEach((key, i) => addDelta(deltas, key, BigInt(meta.postBalances[i]) - BigInt(meta.preBalances[i])));
     addDelta(deltas, accountKeys[0], BigInt(meta.fee ?? 0));
 
-    const payers = new Set(accountKeys.filter(key => key === senderAddress));
+    const payers = new Set([senderAddress]);
     const ownedBy = (balance: any) => balance?.owner === senderAddress;
 
     for (const pre of meta.preTokenBalances ?? []) {
