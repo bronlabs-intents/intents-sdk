@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import bs58 from 'bs58';
+
 import { proxyFetch } from '../src/proxy.js';
 import { allowedSettlementMethods, SettlementMethod } from '../src/attestation.js';
 import { SolNetwork } from '../src/networks/sol.js';
@@ -13,14 +15,17 @@ const SENDER = 'Sender11111111111111111111111111111111111';
 
 const balance = (owner: string, amount: string) => ({ mint: MINT, owner, accountIndex: [FEE_PAYER, SENDER, RECEIVER].indexOf(owner), uiTokenAmount: { amount } });
 
-function mockTransaction(meta: any, accountKeys: string[] = [FEE_PAYER, SENDER]): void {
+const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+const mintTo = (programIdIndex: number, mintIndex: number) => ({ programIdIndex, accounts: [mintIndex, 2, 0], data: bs58.encode(Buffer.from([7, 0, 0, 0, 0, 0, 0, 0, 0])) });
+
+function mockTransaction(meta: any, accountKeys: string[] = [FEE_PAYER, SENDER], instructions: any[] = []): void {
   vi.mocked(proxyFetch).mockImplementation((_url: string, init?: any) => {
     const method = JSON.parse(init?.body ?? '{}').method;
 
     const result =
       method === 'getLatestBlockhash'
         ? { context: { slot: 1000 } }
-        : { slot: 900, blockTime: 1700000000, meta: { err: null, ...meta }, transaction: { message: { accountKeys } } };
+        : { slot: 900, blockTime: 1700000000, meta: { err: null, ...meta }, transaction: { message: { accountKeys, instructions } } };
 
     return Promise.resolve({ json: () => Promise.resolve({ result }) }) as any;
   });
@@ -32,15 +37,24 @@ describe('SolNetwork.getTxData', () => {
   });
 
   it('reports an SPL mint with an empty token-level from and the fee payer as the envelope sender', async () => {
-    mockTransaction({ preTokenBalances: [], postTokenBalances: [balance(RECEIVER, '1500000')] });
+    mockTransaction({ preTokenBalances: [], postTokenBalances: [balance(RECEIVER, '1500000')] }, [FEE_PAYER, SENDER, RECEIVER, TOKEN_PROGRAM, MINT], [mintTo(3, 4)]);
 
     const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', MINT, RECEIVER, undefined, SENDER);
 
     expect(tx).toMatchObject({ from: '', to: RECEIVER, token: MINT, amount: 1500000n, envelopeFrom: FEE_PAYER, confirmed: true });
   });
 
+  it('gives no envelope sender for a mint that no top-level instruction of the fee payer made', async () => {
+    mockTransaction({ preTokenBalances: [], postTokenBalances: [balance(RECEIVER, '1500000')] }, [FEE_PAYER, SENDER, RECEIVER, 'Bridge1111111111111111111111111111111111111', MINT], [mintTo(3, 4)]);
+
+    const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', MINT, RECEIVER, undefined, SENDER);
+
+    expect(tx).toMatchObject({ from: '', amount: 1500000n });
+    expect(tx?.envelopeFrom).toBeUndefined();
+  });
+
   it('credits only the receiver delta when the mint tops up an existing balance', async () => {
-    mockTransaction({ preTokenBalances: [balance(RECEIVER, '400')], postTokenBalances: [balance(RECEIVER, '1000')] });
+    mockTransaction({ preTokenBalances: [balance(RECEIVER, '400')], postTokenBalances: [balance(RECEIVER, '1000')] }, [FEE_PAYER, SENDER, RECEIVER, TOKEN_PROGRAM, MINT], [mintTo(3, 4)]);
 
     const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', MINT, RECEIVER, undefined, SENDER);
 

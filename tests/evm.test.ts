@@ -50,7 +50,7 @@ function mockRpc(options: { logs?: any[]; trace?: any; traceError?: any; traceNo
 
     switch (method) {
       case 'eth_getTransactionReceipt':
-        return respond({ result: { status: '0x1', from: options.envelope?.from ?? RELAYER, to: options.envelope?.to ?? WALLET, blockNumber: '0x10', logs: options.logs ?? [] } });
+        return respond({ result: { transactionHash: '0xHASH', status: '0x1', from: options.envelope?.from ?? RELAYER, to: options.envelope?.to ?? WALLET, blockNumber: '0x10', logs: options.logs ?? [] } });
       case 'eth_getTransactionByHash':
         return respond({ result: { value: hex(options.envelope?.value ?? 0n) } });
       case 'eth_getBlockByNumber':
@@ -134,7 +134,7 @@ describe('EvmNetwork.getTxData native', () => {
 
     const tx = await network().getTxData('0xhash', '0x0', RECIPIENT, undefined, WALLET);
 
-    expect(tx).toMatchObject({ from: WALLET, to: RECIPIENT, amount: AMOUNT, envelopeFrom: RELAYER });
+    expect(tx).toMatchObject({ from: WALLET, to: RECIPIENT, amount: AMOUNT, txId: '0xhash' });
   });
 
   it('ignores value moved by a reverted inner frame', async () => {
@@ -242,12 +242,21 @@ describe('EvmNetwork.getTxData ERC20', () => {
     expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 
-  it('keeps a mint reported with a zero sender for the envelope path', async () => {
-    mockRpc({ logs: [transferLog(ZERO, RECIPIENT, 500n), transferLog(WALLET, ROUTER, 500n)] });
+  it('keeps the envelope sender of a mint it called on the token itself', async () => {
+    mockRpc({ logs: [transferLog(ZERO, RECIPIENT, 500n)], envelope: { from: RELAYER, to: TOKEN, value: 0n } });
 
     const tx = await network().getTxData('0xhash', TOKEN, RECIPIENT, undefined, WALLET);
 
-    expect(tx).toMatchObject({ from: ZERO, envelopeFrom: RELAYER });
+    expect(tx).toMatchObject({ from: ZERO, amount: 500n, envelopeFrom: RELAYER });
+  });
+
+  it('gives no envelope sender for a mint relayed through another contract', async () => {
+    mockRpc({ logs: [transferLog(ZERO, RECIPIENT, 500n)], envelope: { from: RELAYER, to: ROUTER, value: 0n } });
+
+    const tx = await network().getTxData('0xhash', TOKEN, RECIPIENT, undefined, WALLET);
+
+    expect(tx).toMatchObject({ from: ZERO, amount: 500n });
+    expect(tx?.envelopeFrom).toBeUndefined();
   });
 });
 

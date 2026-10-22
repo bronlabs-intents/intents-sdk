@@ -113,7 +113,7 @@ export class TonNetwork implements Network, AttestationCapable {
       ? directPayment(this.nativeTransfers(transactions), payer, recipient)
       : await this.jettonPayment(transactions, tokenAddress, payer, recipient);
 
-    return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, timestamp);
+    return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, timestamp, { txId: tx.hash });
   }
 
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {

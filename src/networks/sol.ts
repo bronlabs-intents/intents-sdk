@@ -8,6 +8,9 @@ import { AttestationCapable, SignatureScheme, verifyEd25519 } from '../attestati
 import { addDelta, chargeMint, log, memoize, provableContribution, settlement, UNATTRIBUTED, unpaid } from "../utils.js";
 import { proxyFetch } from '../proxy.js';
 
+const TOKEN_PROGRAMS = new Set(["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"]);
+const MINT_TO_INSTRUCTIONS = new Set([7, 14]);
+
 function tokenDeltasByOwner(preTokenBalances: any[], postTokenBalances: any[]): Map<string, bigint> {
   const accounts = new Map<number, { owner?: string; delta: bigint }>();
 
@@ -158,7 +161,13 @@ export class SolNetwork implements Network, AttestationCapable {
 
     const minted = provableContribution(deltas, new Set([senderAddress, UNATTRIBUTED]), recipientAddress);
 
-    return settlement("", recipientAddress, tokenAddress, minted, confirmed, timestamp, { envelopeFrom: accountKeys[0] });
+    const mintedDirectly = result.transaction.message.instructions.some((instruction: any) =>
+      TOKEN_PROGRAMS.has(accountKeys[instruction.programIdIndex]) &&
+      MINT_TO_INSTRUCTIONS.has(bs58.decode(instruction.data)[0]) &&
+      accountKeys[instruction.accounts[0]] === tokenAddress
+    );
+
+    return settlement("", recipientAddress, tokenAddress, minted, confirmed, timestamp, { envelopeFrom: mintedDirectly ? accountKeys[0] : undefined });
   }
 
   private nativeContribution(meta: any, accountKeys: string[], senderAddress: string, recipientAddress: string): bigint {

@@ -221,7 +221,7 @@ export class HbarNetwork implements Network, AttestationCapable {
 
     const paid = provableContribution(deltas, new Set([expectedSender]), recipient);
 
-    return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, Math.max(...successful.map(consensusSeconds)));
+    return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, Math.max(...successful.map(consensusSeconds)), { txId: primary.transaction_id });
   }
 
   private async resolveEthereumHash(txHash: string): Promise<string | undefined> {
