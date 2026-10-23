@@ -113,7 +113,7 @@ export class TonNetwork implements Network, AttestationCapable {
       ? directPayment(this.nativeTransfers(transactions), payer, recipient)
       : await this.jettonPayment(transactions, tokenAddress, payer, recipient);
 
-    return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, timestamp);
+    return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, timestamp, { txId: tx.hash });
   }
 
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {
@@ -181,7 +181,7 @@ export class TonNetwork implements Network, AttestationCapable {
       throw new Error("Transaction not found after confirmation");
     }
 
-    return transactions[0].hash().toString("hex");
+    return transactions[0].hash().toString("base64");
   }
 
   private parsePrivateKey(privateKey: string): { publicKey: Buffer; secretKey: Buffer } {

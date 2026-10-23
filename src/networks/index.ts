@@ -22,6 +22,7 @@ export interface TransactionData {
   confirmed: boolean;
   timestamp: number;
   envelopeFrom?: string;
+  txId?: string;
 }
 
 export interface Network {

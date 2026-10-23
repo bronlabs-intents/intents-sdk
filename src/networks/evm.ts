@@ -25,6 +25,7 @@ interface CallFrame {
 }
 
 interface EthTransactionReceipt {
+  transactionHash: string;
   status: string;
   from: string;
   to: string;
@@ -150,7 +151,7 @@ export class EvmNetwork implements Network, AttestationCapable {
     const recipient = recipientAddress.toLowerCase();
 
     const payment = (from: string, amount: bigint, extra: Partial<TransactionData> = {}): TransactionData =>
-      settlement(from, recipientAddress, tokenAddress, amount, confirmed, timestamp, { envelopeFrom: receipt.from, ...extra });
+      settlement(from, recipientAddress, tokenAddress, amount, confirmed, timestamp, { txId: receipt.transactionHash, ...extra });
 
     const tokenPayment = (transferLogs: EthTransactionReceipt['logs'], decodeAmount: (data: string) => bigint, extra: Partial<TransactionData> = {}): TransactionData => {
       const transfers: Transfer[] = transferLogs.map(l => [
@@ -161,9 +162,13 @@ export class EvmNetwork implements Network, AttestationCapable {
 
       const paid = directPayment(transfers, payer, recipient);
 
-      return paid > 0n
-        ? payment(senderAddress, paid, extra)
-        : payment(ethers.ZeroAddress, directPayment(transfers, ethers.ZeroAddress, recipient), extra);
+      if (paid > 0n) {
+        return payment(senderAddress, paid, extra);
+      }
+
+      const envelopeFrom = receipt.to?.toLowerCase() === token ? receipt.from : undefined;
+
+      return payment(ethers.ZeroAddress, directPayment(transfers, ethers.ZeroAddress, recipient), { ...extra, envelopeFrom });
     };
 
     if (tokenAddress === "0x0") {

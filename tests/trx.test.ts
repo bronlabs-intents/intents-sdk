@@ -132,6 +132,15 @@ describe('TrxNetwork.getTxData TRC20', () => {
     expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 
+  it('credits no mint to the zero address declared as the payer', async () => {
+    const zero = '410000000000000000000000000000000000000000';
+    const logs = [transferLog(zero, RECIPIENT, 500n)];
+
+    const tx = await mockedNetwork({ logs }).getTxData('hash', fromHex(TOKEN), fromHex(RECIPIENT), undefined, fromHex(zero));
+
+    expect(tx).toMatchObject({ from: '', amount: 0n });
+  });
+
   it('attributes the payer forwarding tokens it received in the same transaction', async () => {
     const logs = [transferLog(OTHER, WALLET, 500n), transferLog(WALLET, RECIPIENT, 500n)];
 

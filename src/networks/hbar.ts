@@ -203,7 +203,7 @@ export class HbarNetwork implements Network, AttestationCapable {
       return;
     }
 
-    const expectedSender = await this.resolveAccountId(senderAddress);
+    const expectedSender = ENTITY_ID.test(senderAddress) || EVM_ALIAS.test(senderAddress) ? await this.resolveAccountId(senderAddress) : undefined;
 
     if (!expectedSender) {
       log.warn(`HBAR alias ${senderAddress} has no account on the mirror node; it cannot have paid ${txHash}`);
@@ -221,7 +221,7 @@ export class HbarNetwork implements Network, AttestationCapable {
 
     const paid = provableContribution(deltas, new Set([expectedSender]), recipient);
 
-    return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, Math.max(...successful.map(consensusSeconds)));
+    return settlement(senderAddress, recipientAddress, tokenAddress, paid, confirmed, Math.max(...successful.map(consensusSeconds)), { txId: primary.transaction_id });
   }
 
   private async resolveEthereumHash(txHash: string): Promise<string | undefined> {
