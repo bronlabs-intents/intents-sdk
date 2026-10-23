@@ -181,7 +181,7 @@ export class TonNetwork implements Network, AttestationCapable {
       throw new Error("Transaction not found after confirmation");
     }
 
-    return transactions[0].hash().toString("hex");
+    return transactions[0].hash().toString("base64");
   }
 
   private parsePrivateKey(privateKey: string): { publicKey: Buffer; secretKey: Buffer } {
