@@ -238,7 +238,7 @@ export class HbarNetwork implements Network, AttestationCapable {
 
   private async resolveAccountId(address: string): Promise<string | undefined> {
     if (!EVM_ALIAS.test(address)) {
-      return address;
+      return ENTITY_ID.test(address) ? address : undefined;
     }
 
     const account = await this.apiGet(`accounts/${address.toLowerCase()}?limit=1`);

@@ -138,6 +138,10 @@ export class SolNetwork implements Network, AttestationCapable {
 
     log.info(`Confirmations ${txHash}: ${currentBlock - blockNumber}`);
 
+    if (bs58.decodeUnsafe(senderAddress)?.length !== 32) {
+      return unpaid(confirmed, timestamp);
+    }
+
     const accountKeys: string[] = [
       ...result.transaction.message.accountKeys,
       ...(result.meta.loadedAddresses?.writable ?? []),

@@ -319,6 +319,14 @@ describe('getTxData native HBAR', () => {
     expect(tx).toMatchObject({ from: '', amount: 0n });
   });
 
+  it('credits no mint to a declared payer that is not an account id', async () => {
+    const mint = { ...tokenEntry, token_transfers: [{ token_id: TOKEN, account: RECIPIENT, amount: 500 }] };
+
+    const tx = await mockedNetwork(withEntries(mint)).getTxData(TX_ID, TOKEN, RECIPIENT, undefined, 'unattributed');
+
+    expect(tx).toMatchObject({ from: '', amount: 0n });
+  });
+
   it('returns nothing when the response carries no top-level entry', async () => {
     const child = { ...nativeEntry, nonce: 1, transfers: [{ account: RECIPIENT, amount: 999 }] };
 
