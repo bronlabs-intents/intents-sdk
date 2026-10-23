@@ -9,7 +9,9 @@ import { addDelta, chargeMint, log, memoize, provableContribution, settlement, U
 import { proxyFetch } from '../proxy.js';
 
 const TOKEN_PROGRAMS = new Set(["TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA", "TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb"]);
-const MINT_TO_INSTRUCTIONS = new Set([7, 14]);
+const MINT_TO = 7;
+const MINT_TO_CHECKED = 14;
+const MINT_TO_INSTRUCTIONS = new Set([MINT_TO, MINT_TO_CHECKED]);
 
 function tokenDeltasByOwner(preTokenBalances: any[], postTokenBalances: any[]): Map<string, bigint> {
   const accounts = new Map<number, { owner?: string; delta: bigint }>();

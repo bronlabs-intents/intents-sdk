@@ -151,7 +151,7 @@ export class EvmNetwork implements Network, AttestationCapable {
     const recipient = recipientAddress.toLowerCase();
 
     const payment = (from: string, amount: bigint, extra: Partial<TransactionData> = {}): TransactionData =>
-      settlement(from, recipientAddress, tokenAddress, amount, confirmed, timestamp, { txId: receipt.transactionHash.toLowerCase(), ...extra });
+      settlement(from, recipientAddress, tokenAddress, amount, confirmed, timestamp, { txId: receipt.transactionHash, ...extra });
 
     const tokenPayment = (transferLogs: EthTransactionReceipt['logs'], decodeAmount: (data: string) => bigint, extra: Partial<TransactionData> = {}): TransactionData => {
       const transfers: Transfer[] = transferLogs.map(l => [
@@ -166,10 +166,9 @@ export class EvmNetwork implements Network, AttestationCapable {
         return payment(senderAddress, paid, extra);
       }
 
-      const minted = directPayment(transfers, ethers.ZeroAddress, recipient);
       const envelopeFrom = receipt.to?.toLowerCase() === token ? receipt.from : undefined;
 
-      return payment(ethers.ZeroAddress, minted, { ...extra, envelopeFrom });
+      return payment(ethers.ZeroAddress, directPayment(transfers, ethers.ZeroAddress, recipient), { ...extra, envelopeFrom });
     };
 
     if (tokenAddress === "0x0") {

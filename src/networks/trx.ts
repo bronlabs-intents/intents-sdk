@@ -101,7 +101,7 @@ export class TrxNetwork implements Network, AttestationCapable {
 
     const payerBody = base58Body(senderAddress);
     const recipientBody = base58Body(recipientAddress);
-    const paid = (transfers: Transfer[]): bigint => payerBody && recipientBody ? directPayment(transfers, payerBody, recipientBody) : 0n;
+    const paid = (transfers: Transfer[]): bigint => payerBody && recipientBody && !/^0+$/.test(payerBody) ? directPayment(transfers, payerBody, recipientBody) : 0n;
 
     if (tokenAddress === "0x0") {
       const response = await this.request(`/wallet/gettransactionbyid`, {

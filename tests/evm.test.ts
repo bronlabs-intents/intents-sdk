@@ -134,7 +134,7 @@ describe('EvmNetwork.getTxData native', () => {
 
     const tx = await network().getTxData('0xhash', '0x0', RECIPIENT, undefined, WALLET);
 
-    expect(tx).toMatchObject({ from: WALLET, to: RECIPIENT, amount: AMOUNT, txId: '0xhash' });
+    expect(tx).toMatchObject({ from: WALLET, to: RECIPIENT, amount: AMOUNT, txId: '0xHASH' });
   });
 
   it('ignores value moved by a reverted inner frame', async () => {

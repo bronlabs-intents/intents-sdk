@@ -203,7 +203,7 @@ export class HbarNetwork implements Network, AttestationCapable {
       return;
     }
 
-    const expectedSender = await this.resolveAccountId(senderAddress);
+    const expectedSender = ENTITY_ID.test(senderAddress) || EVM_ALIAS.test(senderAddress) ? await this.resolveAccountId(senderAddress) : undefined;
 
     if (!expectedSender) {
       log.warn(`HBAR alias ${senderAddress} has no account on the mirror node; it cannot have paid ${txHash}`);
@@ -238,7 +238,7 @@ export class HbarNetwork implements Network, AttestationCapable {
 
   private async resolveAccountId(address: string): Promise<string | undefined> {
     if (!EVM_ALIAS.test(address)) {
-      return ENTITY_ID.test(address) ? address : undefined;
+      return address;
     }
 
     const account = await this.apiGet(`accounts/${address.toLowerCase()}?limit=1`);
