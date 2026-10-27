@@ -18,14 +18,16 @@ const balance = (owner: string, amount: string) => ({ mint: MINT, owner, account
 const TOKEN_PROGRAM = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
 const mintTo = (programIdIndex: number, mintIndex: number) => ({ programIdIndex, accounts: [mintIndex, 2, 0], data: bs58.encode(Buffer.from([7, 0, 0, 0, 0, 0, 0, 0, 0])) });
 
-function mockTransaction(meta: any, accountKeys: string[] = [FEE_PAYER, SENDER], instructions: any[] = []): void {
+function mockTransaction(meta: any, accountKeys: string[] = [FEE_PAYER, SENDER], instructions: any[] = [], signers = 1, accounts: Record<string, any> = {}): void {
   vi.mocked(proxyFetch).mockImplementation((_url: string, init?: any) => {
-    const method = JSON.parse(init?.body ?? '{}').method;
+    const { method, params } = JSON.parse(init?.body ?? '{}');
 
     const result =
       method === 'getLatestBlockhash'
         ? { context: { slot: 1000 } }
-        : { slot: 900, blockTime: 1700000000, meta: { err: null, ...meta }, transaction: { message: { accountKeys, instructions } } };
+        : method === 'getAccountInfo'
+          ? { value: accounts[params[0]] ?? null }
+          : { slot: 900, blockTime: 1700000000, meta: { err: null, ...meta }, transaction: { message: { accountKeys, instructions, header: { numRequiredSignatures: signers } } } };
 
     return Promise.resolve({ json: () => Promise.resolve({ result }) }) as any;
   });
@@ -51,6 +53,54 @@ describe('SolNetwork.getTxData', () => {
 
     expect(tx).toMatchObject({ from: '', amount: 1500000n });
     expect(tx?.envelopeFrom).toBeUndefined();
+  });
+
+  describe('a mint made inside another program', () => {
+    const TOKEN_2022 = 'TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';
+    const HOOK = 'Hook111111111111111111111111111111111111111';
+    const MULTISIG = 'Multisig11111111111111111111111111111111111';
+    const PDA = 'HookPda1111111111111111111111111111111111111';
+    const COSIGNER = 'Cosigner111111111111111111111111111111111111';
+    const KEYS = [FEE_PAYER, COSIGNER, RECEIVER, HOOK, MINT, TOKEN_2022, MULTISIG, PDA];
+    const multisig = (signers: string[]) => ({ owner: TOKEN_2022, data: { parsed: { type: 'multisig', info: { signers } } } });
+    const innerMintTo = (...authority: number[]) => ({ index: 0, instructions: [{ programIdIndex: 5, accounts: [4, 2, ...authority], data: bs58.encode(Buffer.from([7, 0, 0, 0, 0, 0, 0, 0, 0])) }] });
+    const minted = (...authority: number[]) => ({ preTokenBalances: [], postTokenBalances: [balance(RECEIVER, '1500000')], innerInstructions: [innerMintTo(...authority)] });
+    const hookCall = { programIdIndex: 3, accounts: [0, 1, 4, 6, 7], data: '' };
+
+    it('gives the fee payer as the envelope sender when a member of the multisig authority signed', async () => {
+      mockTransaction(minted(6, 7, 1), KEYS, [hookCall], 2, { [MULTISIG]: multisig([PDA, COSIGNER]) });
+
+      const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', MINT, RECEIVER, undefined, SENDER);
+
+      expect(tx).toMatchObject({ from: '', amount: 1500000n, envelopeFrom: FEE_PAYER });
+    });
+
+    it('gives no envelope sender when only a program authorised the mint', async () => {
+      mockTransaction(minted(7), KEYS, [hookCall], 2);
+
+      const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', MINT, RECEIVER, undefined, SENDER);
+
+      expect(tx).toMatchObject({ from: '', amount: 1500000n });
+      expect(tx?.envelopeFrom).toBeUndefined();
+    });
+
+    it('ignores a signer passed to the mint that is not a member of the multisig', async () => {
+      mockTransaction(minted(6, 7, 0), KEYS, [hookCall], 1, { [MULTISIG]: multisig([PDA, COSIGNER]) });
+
+      const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', MINT, RECEIVER, undefined, SENDER);
+
+      expect(tx?.envelopeFrom).toBeUndefined();
+    });
+
+    it('ignores a multisig-shaped account that the token programs do not own', async () => {
+      const FAKE_MULTISIG = 'FakeMultisig1111111111111111111111111111111';
+
+      mockTransaction(minted(6, 7, 1), KEYS.with(6, FAKE_MULTISIG), [hookCall], 2, { [FAKE_MULTISIG]: { ...multisig([PDA, COSIGNER]), owner: HOOK } });
+
+      const tx = await new SolNetwork('http://rpc', 10).getTxData('sig', MINT, RECEIVER, undefined, SENDER);
+
+      expect(tx?.envelopeFrom).toBeUndefined();
+    });
   });
 
   it('credits only the receiver delta when the mint tops up an existing balance', async () => {

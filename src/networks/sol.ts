@@ -167,13 +167,61 @@ export class SolNetwork implements Network, AttestationCapable {
 
     const minted = provableContribution(deltas, new Set([senderAddress, UNATTRIBUTED]), recipientAddress);
 
-    const mintedDirectly = result.transaction.message.instructions.some((instruction: any) =>
-      TOKEN_PROGRAMS.has(accountKeys[instruction.programIdIndex]) &&
-      MINT_TO_INSTRUCTIONS.has(bs58.decode(instruction.data)[0]) &&
-      accountKeys[instruction.accounts[0]] === tokenAddress
-    );
+    const mintAuthorities = [
+      ...result.transaction.message.instructions,
+      ...(result.meta.innerInstructions ?? []).flatMap((inner: any) => inner.instructions)
+    ]
+      .filter((instruction: any) =>
+        TOKEN_PROGRAMS.has(accountKeys[instruction.programIdIndex]) &&
+        MINT_TO_INSTRUCTIONS.has(bs58.decode(instruction.data)[0]) &&
+        accountKeys[instruction.accounts[0]] === tokenAddress
+      )
+      .map((instruction: any) => accountKeys[instruction.accounts[2]]);
 
-    return settlement("", recipientAddress, tokenAddress, minted, confirmed, timestamp, { envelopeFrom: mintedDirectly ? accountKeys[0] : undefined });
+    const signers = new Set(accountKeys.slice(0, result.transaction.message.header.numRequiredSignatures));
+    const mintSigned = await this.someMintAuthoritySigned(mintAuthorities, signers);
+
+    return settlement("", recipientAddress, tokenAddress, minted, confirmed, timestamp, { envelopeFrom: mintSigned ? accountKeys[0] : undefined });
+  }
+
+  private async someMintAuthoritySigned(authorities: string[], signers: Set<string>): Promise<boolean> {
+    if (authorities.some((authority) => signers.has(authority))) {
+      return true;
+    }
+
+    for (const authority of new Set(authorities)) {
+      const members = await this.multisigMembers(authority);
+
+      if (members.some((member) => signers.has(member))) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  private multisigMembers(address: string): Promise<string[]> {
+    return memoize(`multisig-sol-${address}`, 86400 * 1000, async () => {
+      const { result, error } = await proxyFetch(this.rpcUrl, {
+        method: 'POST',
+        body: JSON.stringify({
+          id: 1,
+          jsonrpc: "2.0",
+          method: "getAccountInfo",
+          params: [address, {
+            "encoding": "jsonParsed"
+          }]
+        })
+      }).then((res) => res.json());
+
+      if (error) {
+        throw new Error(`getAccountInfo ${address} failed: ${error.code} ${error.message}`);
+      }
+
+      const parsed = result?.value?.data?.parsed;
+
+      return TOKEN_PROGRAMS.has(result?.value?.owner) && parsed?.type === 'multisig' ? parsed.info.signers : [];
+    });
   }
 
   private nativeContribution(meta: any, accountKeys: string[], senderAddress: string, recipientAddress: string): bigint {
