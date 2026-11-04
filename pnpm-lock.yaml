@@ -33,9 +33,6 @@ importers:
       '@noble/ed25519':
         specifier: ^3.0.0
         version: 3.0.0
-      '@noble/hashes':
-        specifier: 2.4.0
-        version: 2.4.0
       '@polkadot/types':
         specifier: ^16.5.6
         version: 16.5.6

@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
 import * as ed25519 from '@noble/ed25519';
-import { blake2b } from '@noble/hashes/blake2.js';
+import { blake2AsU8a } from '@polkadot/util-crypto';
 import { bcs } from '@mysten/sui/bcs';
 import { messageWithIntent } from '@mysten/sui/cryptography';
 
@@ -332,8 +332,8 @@ export function verifyPayerSignatureEip712(
 //
 // Method 1 (payer-signature) is allowed on every network; method 2 (mint payer-signature) only on the
 // EVM + Solana networks that host consumer-token mints; method 3 (EIP-712 payer-signature) only on
-// the EVM networks with a pinned chainId, transfers only; method 4 (Sui personal-message payer-signature)
-// only on SUI, transfers only.
+// the EVM networks with a pinned chainId, transfers only; method 4 (Sui personal-message payer-signature,
+// ed25519 accounts only) only on SUI, transfers only.
 // ---------------------------------------------------------------------------
 
 export enum SettlementMethod {
@@ -388,7 +388,7 @@ const SUI_ED25519_FLAG = 0x00;
 const SUI_ED25519_SERIALIZED_SIGNATURE_LENGTH = 97;
 
 export function suiPersonalMessageDigest(preimage: Uint8Array): Uint8Array {
-  return blake2b(messageWithIntent('PersonalMessage', bcs.byteVector().serialize(preimage).toBytes()), { dkLen: 32 });
+  return blake2AsU8a(messageWithIntent('PersonalMessage', bcs.byteVector().serialize(preimage).toBytes()), 256);
 }
 
 export function encodeSuiPersonalMessageProof(serializedSignature: string): string {
@@ -474,9 +474,13 @@ export async function verifySettlementProof(
     }
 
     case SettlementMethod.PayerSignatureSuiPersonalMessage: {
+      if (input.mintContext?.logFromWasZero) {
+        return { present: true, methodAllowed: true, valid: false };
+      }
+
       const decoded = decodeSuiPersonalMessageProof(input.proof);
 
-      if (input.mintContext?.logFromWasZero || !decoded) {
+      if (!decoded) {
         return { present: true, methodAllowed: true, valid: false };
       }
 

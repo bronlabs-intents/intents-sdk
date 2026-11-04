@@ -9,10 +9,13 @@ import { ethers } from 'ethers';
 import { Network, TransactionData } from './index.js';
 import { AttestationCapable, SignatureScheme, verifyEd25519 } from '../attestation.js';
 import { addDelta, chargeMint, log, memoize, provableContribution, settlement, unpaid } from '../utils.js';
+import { getProxyAgentForUrl } from '../proxy.js';
 
-export const SUI_MAINNET_CHAIN_ID = '4btiuiMPvEENsttpZC7CZ53DruC3MAgfznDbASZ7DR6S';
+const SUI_MAINNET_CHAIN_ID = '4btiuiMPvEENsttpZC7CZ53DruC3MAgfznDbASZ7DR6S';
 
 const SUI_FRAMEWORK = normalizeSuiAddress('0x2');
+
+const SUI_COIN_TYPE = normalizeStructTag(SUI_TYPE_ARG);
 
 const TRANSFER_CALLS = new Set([
   'coin::send_funds',
@@ -25,6 +28,16 @@ const TRANSFER_CALLS = new Set([
   'balance::redeem_funds',
   'balance::zero',
   'balance::destroy_zero',
+  'balance::split',
+  'balance::join',
+  'coin::put',
+  'funds_accumulator::withdrawal_split',
+  'pay::split',
+  'pay::split_vec',
+  'pay::split_and_transfer',
+  'pay::join',
+  'pay::join_vec',
+  'transfer::public_transfer',
 ]);
 
 const TX_READ_MASK = [
@@ -58,68 +71,95 @@ function normalizedCoinType(tokenAddress: string): string | undefined {
   }
 }
 
-function isPlainTransfer(kind: GrpcTypes.TransactionKind | undefined): boolean {
+function disallowedPart(kind: GrpcTypes.TransactionKind | undefined): string | undefined {
   if (kind?.kind !== GrpcTypes.TransactionKind_Kind.PROGRAMMABLE_TRANSACTION || kind.data.oneofKind !== 'programmableTransaction') {
-    return false;
+    return `transaction kind ${kind?.kind}`;
   }
 
   const { inputs, commands } = kind.data.programmableTransaction;
 
-  const inputsAllowed = inputs.every(input =>
+  const input = inputs.find(input => !(
     input.kind === GrpcTypes.Input_InputKind.PURE ||
     input.kind === GrpcTypes.Input_InputKind.IMMUTABLE_OR_OWNED ||
     (input.kind === GrpcTypes.Input_InputKind.FUNDS_WITHDRAWAL && input.fundsWithdrawal?.source === GrpcTypes.FundsWithdrawal_Source.SENDER)
-  );
+  ));
 
-  return inputsAllowed && commands.every(({ command }) => {
+  if (input) {
+    return `input kind ${input.kind}`;
+  }
+
+  for (const { command } of commands) {
     switch (command.oneofKind) {
       case 'splitCoins':
       case 'mergeCoins':
       case 'transferObjects':
-        return true;
-      case 'moveCall':
-        return !!command.moveCall.package &&
-          normalizeSuiAddress(command.moveCall.package) === SUI_FRAMEWORK &&
-          TRANSFER_CALLS.has(`${command.moveCall.module}::${command.moveCall.function}`);
+        continue;
+      case 'moveCall': {
+        const { package: pkg, module, function: fn } = command.moveCall;
+
+        if (pkg && normalizeSuiAddress(pkg) === SUI_FRAMEWORK && TRANSFER_CALLS.has(`${module}::${fn}`)) {
+          continue;
+        }
+
+        return `call ${pkg}::${module}::${fn}`;
+      }
       default:
-        return false;
+        return `command ${command.oneofKind}`;
     }
-  });
-}
+  }
 
-export function suiClientFor(rpcUrl: string): SuiGrpcClient {
-  const url = new URL(rpcUrl);
-  const tls = url.protocol === 'https:';
-  const chain = url.pathname.replace(/^\/+|\/+$/g, '');
-
-  return new SuiGrpcClient({
-    network: 'mainnet',
-    transport: new GrpcTransport({
-      host: `${url.hostname}:${url.port || (tls ? 443 : 80)}`,
-      channelCredentials: tls ? ChannelCredentials.createSsl() : ChannelCredentials.createInsecure(),
-      meta: chain ? { 'x-chain': chain } : {},
-      timeout: REQUEST_TIMEOUT_MS,
-    }),
-  });
+  return undefined;
 }
 
 export class SuiNetwork implements Network, AttestationCapable {
-  private readonly client: SuiGrpcClient;
-  private readonly chainId: string;
+  private readonly rpcUrl: string;
+  private grpcClient?: SuiGrpcClient;
   private readonly nativeAssetDecimals: number = 9;
   readonly retryDelay: number = 5000;
   readonly signatureScheme = SignatureScheme.Ed25519;
 
-  constructor(rpcUrl: string, chainId: string = SUI_MAINNET_CHAIN_ID, client?: SuiGrpcClient) {
-    this.client = client ?? suiClientFor(rpcUrl);
-    this.chainId = chainId;
+  constructor(rpcUrl: string) {
+    this.rpcUrl = rpcUrl;
+  }
+
+  private get client(): SuiGrpcClient {
+    if (this.grpcClient) {
+      return this.grpcClient;
+    }
+
+    const url = new URL(this.rpcUrl);
+    const tls = url.protocol === 'https:';
+    const target = `${url.hostname}:${url.port || (tls ? 443 : 80)}`;
+    const chain = url.pathname.replace(/^\/+|\/+$/g, '');
+    const proxy = getProxyAgentForUrl(this.rpcUrl)?.proxy;
+
+    const tunnel = proxy ? {
+      'grpc.enable_http_proxy': 0,
+      'grpc.http_connect_target': `dns:///${target}`,
+      'grpc.default_authority': target,
+      'grpc.ssl_target_name_override': url.hostname,
+      ...(proxy.username ? { 'grpc.http_connect_creds': `${decodeURIComponent(proxy.username)}:${decodeURIComponent(proxy.password)}` } : {}),
+    } : {};
+
+    this.grpcClient = new SuiGrpcClient({
+      network: 'mainnet',
+      transport: new GrpcTransport({
+        host: proxy ? `${proxy.hostname}:${proxy.port || (proxy.protocol === 'https:' ? 443 : 80)}` : target,
+        channelCredentials: tls ? ChannelCredentials.createSsl() : ChannelCredentials.createInsecure(),
+        clientOptions: tunnel,
+        meta: chain ? { 'x-chain': chain } : {},
+        timeout: REQUEST_TIMEOUT_MS,
+      }),
+    });
+
+    return this.grpcClient;
   }
 
   async ping(): Promise<void> {
     const { response } = await this.client.ledgerService.getServiceInfo({});
 
-    if (response.chainId !== this.chainId) {
-      throw new Error(`Sui node serves chain ${response.chainId}, expected ${this.chainId}`);
+    if (response.chainId !== SUI_MAINNET_CHAIN_ID) {
+      throw new Error(`Sui node serves chain ${response.chainId}, expected ${SUI_MAINNET_CHAIN_ID}`);
     }
   }
 
@@ -183,8 +223,8 @@ export class SuiNetwork implements Network, AttestationCapable {
     }
 
     if (!isCanonicalSuiDigest(txHash)) {
-      log.warn(`Transaction ${txHash} is not a canonical Sui digest`);
-      return;
+      log.error(`Transaction ${txHash} is not a canonical Sui digest`);
+      return unpaid(true, 0);
     }
 
     const tx = await this.fetchTransaction(txHash);
@@ -210,8 +250,10 @@ export class SuiNetwork implements Network, AttestationCapable {
       return unpaid(confirmed, timestamp);
     }
 
-    if (!isPlainTransfer(tx.transaction.kind)) {
-      log.warn(`Transaction ${txHash} is not a plain Sui transfer`);
+    const disallowed = disallowedPart(tx.transaction.kind);
+
+    if (disallowed) {
+      log.warn(`Transaction ${txHash} is not a plain Sui transfer: ${disallowed}`);
       return unpaid(confirmed, timestamp);
     }
 
@@ -225,7 +267,7 @@ export class SuiNetwork implements Network, AttestationCapable {
 
     const gas = tx.effects.gasUsed;
 
-    if (tokenAddress === '0x0' && gas) {
+    if (coinType === SUI_COIN_TYPE && gas) {
       const gasOwner = normalizeSuiAddress(tx.transaction.gasPayment?.owner || tx.transaction.sender);
       addDelta(deltas, gasOwner, (gas.computationCost ?? 0n) + (gas.storageCost ?? 0n) - (gas.storageRebate ?? 0n));
     }

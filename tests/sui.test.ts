@@ -1,11 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import bs58 from 'bs58';
 import { ethers } from 'ethers';
 import { GrpcTypes, RpcError } from '@mysten/sui/grpc';
 import { Ed25519Keypair } from '@mysten/sui/keypairs/ed25519';
 import { normalizeSuiAddress } from '@mysten/sui/utils';
 
-import { isCanonicalSuiDigest, SUI_MAINNET_CHAIN_ID, SuiNetwork } from '../src/networks/sui.js';
+import { isCanonicalSuiDigest, SuiNetwork } from '../src/networks/sui.js';
+import { configureProxy } from '../src/proxy.js';
 import {
   allowedSettlementMethods,
   AttestationMessageParams,
@@ -30,6 +31,8 @@ const SUI = '0x2::sui::SUI';
 const USDC = '0xdba34672e30cb065b1f93e3ab55318768fd6fef66c15942c9f7cb846e2f900e7::usdc::USDC';
 
 const DIGEST = bs58.encode(new Uint8Array(32).fill(3));
+
+const MAINNET = '4btiuiMPvEENsttpZC7CZ53DruC3MAgfznDbASZ7DR6S';
 
 const GAS = { computationCost: 750n, storageCost: 2000n, storageRebate: 978n, nonRefundableStorageFee: 10n };
 const GAS_NET = 1772n;
@@ -93,11 +96,14 @@ function mockedNetwork(transaction: any) {
   });
 
   const client = {
-    ledgerService: { getTransaction, getServiceInfo: vi.fn(async () => ({ response: { chainId: SUI_MAINNET_CHAIN_ID } })) },
+    ledgerService: { getTransaction, getServiceInfo: vi.fn(async () => ({ response: { chainId: MAINNET } })) },
     stateService: { getCoinInfo: vi.fn(async () => ({ response: { metadata: { decimals: 6 } } })) }
   };
 
-  return { network: new SuiNetwork('http://localhost:9000/sui', SUI_MAINNET_CHAIN_ID, client as any), getTransaction };
+  const network = new SuiNetwork('http://localhost:9000/sui');
+  (network as any).grpcClient = client;
+
+  return { network, getTransaction };
 }
 
 const nativeTransfer = (amount: bigint) => executed({
@@ -208,11 +214,20 @@ describe('getTxData native SUI', () => {
     await expect(network.getTxData(DIGEST, '0x0', RECIPIENT, undefined, PAYER)).rejects.toThrow('unavailable');
   });
 
-  it('never queries a non-canonical digest', async () => {
+  it('rejects a non-canonical digest without querying it', async () => {
     const { network, getTransaction } = mockedNetwork(nativeTransfer(1000n));
 
-    expect(await network.getTxData(`1${DIGEST}`, '0x0', RECIPIENT, undefined, PAYER)).toBeUndefined();
+    expect((await network.getTxData(`1${DIGEST}`, '0x0', RECIPIENT, undefined, PAYER))?.amount).toBe(0n);
     expect(getTransaction).not.toHaveBeenCalled();
+  });
+
+  it('adds gas back for the struct-tag spelling of native SUI', async () => {
+    const { network } = mockedNetwork(executed({
+      gasOwner: SPONSOR,
+      changes: [[SPONSOR, SUI, -GAS_NET], [PAYER, SUI, -1000n], [RECIPIENT, SUI, 1000n]]
+    }));
+
+    expect((await network.getTxData(DIGEST, SUI, RECIPIENT, undefined, PAYER))?.amount).toBe(1000n);
   });
 
   it('rejects NFTs', async () => {
@@ -222,41 +237,43 @@ describe('getTxData native SUI', () => {
 });
 
 describe('getTxData plain-transfer guard', () => {
-  const rejected = async (kind: any) => {
+  const amountFor = async (kind: any) => {
     const { network } = mockedNetwork(executed({ kind, changes: [[PAYER, SUI, -(1000n + GAS_NET)], [RECIPIENT, SUI, 1000n]] }));
     return (await network.getTxData(DIGEST, '0x0', RECIPIENT, undefined, PAYER))?.amount;
   };
 
   it('accepts the framework transfer calls wallets and custody emit', async () => {
-    expect(await rejected(ptb([moveCall('0x2::coin::redeem_funds'), moveCall('0x2::coin::send_funds'), ...splitAndTransfer], [pure, withdrawal()]))).toBe(1000n);
-    expect(await rejected(ptb([moveCall('0x0000000000000000000000000000000000000000000000000000000000000002::balance::redeem_funds'), moveCall('0x2::coin::from_balance')]))).toBe(1000n);
+    expect(await amountFor(ptb([moveCall('0x2::coin::redeem_funds'), moveCall('0x2::coin::send_funds'), ...splitAndTransfer], [pure, withdrawal()]))).toBe(1000n);
+    expect(await amountFor(ptb([moveCall('0x0000000000000000000000000000000000000000000000000000000000000002::balance::redeem_funds'), moveCall('0x2::coin::from_balance')]))).toBe(1000n);
+    expect(await amountFor(ptb([moveCall('0x2::funds_accumulator::withdrawal_split'), moveCall('0x2::balance::redeem_funds'), moveCall('0x2::balance::split'), moveCall('0x2::balance::send_funds')], [pure, withdrawal()]))).toBe(1000n);
+    expect(await amountFor(ptb([moveCall('0x2::pay::split_and_transfer'), moveCall('0x2::pay::join_vec'), moveCall('0x2::transfer::public_transfer')]))).toBe(1000n);
   });
 
   it('rejects a mint or burn through the framework', async () => {
-    expect(await rejected(ptb([moveCall('0x2::coin::mint'), ...splitAndTransfer]))).toBe(0n);
-    expect(await rejected(ptb([moveCall('0x2::coin::burn'), ...splitAndTransfer]))).toBe(0n);
+    expect(await amountFor(ptb([moveCall('0x2::coin::mint'), ...splitAndTransfer]))).toBe(0n);
+    expect(await amountFor(ptb([moveCall('0x2::coin::burn'), ...splitAndTransfer]))).toBe(0n);
   });
 
   it('rejects a call into any other package', async () => {
-    expect(await rejected(ptb([moveCall('0xdee9::pool::swap_exact_base_for_quote'), ...splitAndTransfer]))).toBe(0n);
-    expect(await rejected(ptb([moveCall('0x3::sui_system::request_add_stake')]))).toBe(0n);
+    expect(await amountFor(ptb([moveCall('0xdee9::pool::swap_exact_base_for_quote'), ...splitAndTransfer]))).toBe(0n);
+    expect(await amountFor(ptb([moveCall('0x3::sui_system::request_add_stake')]))).toBe(0n);
   });
 
   it('rejects publish, upgrade and vector commands', async () => {
-    expect(await rejected(ptb([{ command: { oneofKind: 'publish', publish: { modules: [], dependencies: [] } } }]))).toBe(0n);
-    expect(await rejected(ptb([{ command: { oneofKind: 'makeMoveVector', makeMoveVector: { elements: [] } } }]))).toBe(0n);
+    expect(await amountFor(ptb([{ command: { oneofKind: 'publish', publish: { modules: [], dependencies: [] } } }]))).toBe(0n);
+    expect(await amountFor(ptb([{ command: { oneofKind: 'makeMoveVector', makeMoveVector: { elements: [] } } }]))).toBe(0n);
   });
 
   it('rejects shared, receiving and foreign-funded inputs', async () => {
-    expect(await rejected(ptb(splitAndTransfer, [{ kind: Input_InputKind.SHARED, objectId: normalizeSuiAddress('0x6') }]))).toBe(0n);
-    expect(await rejected(ptb(splitAndTransfer, [{ kind: Input_InputKind.RECEIVING, objectId: normalizeSuiAddress('0xc02') }]))).toBe(0n);
-    expect(await rejected(ptb(splitAndTransfer, [withdrawal(FundsWithdrawal_Source.SPONSOR)]))).toBe(0n);
-    expect(await rejected(ptb(splitAndTransfer, [withdrawal(FundsWithdrawal_Source.SENDER_ALLOWANCE)]))).toBe(0n);
+    expect(await amountFor(ptb(splitAndTransfer, [{ kind: Input_InputKind.SHARED, objectId: normalizeSuiAddress('0x6') }]))).toBe(0n);
+    expect(await amountFor(ptb(splitAndTransfer, [{ kind: Input_InputKind.RECEIVING, objectId: normalizeSuiAddress('0xc02') }]))).toBe(0n);
+    expect(await amountFor(ptb(splitAndTransfer, [withdrawal(FundsWithdrawal_Source.SPONSOR)]))).toBe(0n);
+    expect(await amountFor(ptb(splitAndTransfer, [withdrawal(FundsWithdrawal_Source.SENDER_ALLOWANCE)]))).toBe(0n);
   });
 
   it('rejects system transactions', async () => {
-    expect(await rejected({ kind: TransactionKind_Kind.PROGRAMMABLE_SYSTEM_TRANSACTION, data: ptb().data })).toBe(0n);
-    expect(await rejected({ kind: TransactionKind_Kind.CHANGE_EPOCH, data: { oneofKind: 'changeEpoch', changeEpoch: {} } })).toBe(0n);
+    expect(await amountFor({ kind: TransactionKind_Kind.PROGRAMMABLE_SYSTEM_TRANSACTION, data: ptb().data })).toBe(0n);
+    expect(await amountFor({ kind: TransactionKind_Kind.CHANGE_EPOCH, data: { oneofKind: 'changeEpoch', changeEpoch: {} } })).toBe(0n);
   });
 });
 
@@ -296,12 +313,49 @@ describe('getTxData coins', () => {
   });
 });
 
-describe('ping', () => {
-  it('rejects a node serving another chain', async () => {
+describe('node connection', () => {
+  afterEach(() => configureProxy(undefined));
+
+  const transportOptions = (network: SuiNetwork) => (network as any).client.ledgerService._transport.defaultOptions;
+
+  it('accepts a node serving mainnet and rejects another chain', async () => {
     const { network } = mockedNetwork(nativeTransfer(1000n));
-    (network as any).client.ledgerService.getServiceInfo = async () => ({ response: { chainId: 'testnet' } });
+
+    await expect(network.ping()).resolves.toBeUndefined();
+
+    (network as any).grpcClient.ledgerService.getServiceInfo = async () => ({ response: { chainId: 'testnet' } });
 
     await expect(network.ping()).rejects.toThrow('expected');
+  });
+
+  it('routes the gateway chain by header and connects directly without a proxy', () => {
+    const options = transportOptions(new SuiNetwork('http://gateway.local/sui'));
+
+    expect(options.host).toBe('gateway.local:80');
+    expect(options.meta).toEqual({ 'x-chain': 'sui' });
+    expect(options.clientOptions).toEqual({});
+  });
+
+  it('tunnels through the configured proxy', () => {
+    configureProxy('http://oracle:p%40ss@proxy.local:3128');
+
+    const options = transportOptions(new SuiNetwork('https://fullnode.example.org'));
+
+    expect(options.host).toBe('proxy.local:3128');
+    expect(options.meta).toEqual({});
+    expect(options.clientOptions).toEqual({
+      'grpc.enable_http_proxy': 0,
+      'grpc.http_connect_target': 'dns:///fullnode.example.org:443',
+      'grpc.default_authority': 'fullnode.example.org:443',
+      'grpc.ssl_target_name_override': 'fullnode.example.org',
+      'grpc.http_connect_creds': 'oracle:p@ss'
+    });
+  });
+
+  it('skips the proxy for a non-proxy host', () => {
+    configureProxy('http://proxy.local:3128', ['gateway.local']);
+
+    expect(transportOptions(new SuiNetwork('http://gateway.local/sui')).host).toBe('gateway.local:80');
   });
 });
 
