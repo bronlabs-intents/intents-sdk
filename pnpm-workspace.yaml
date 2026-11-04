@@ -7,3 +7,4 @@ allowBuilds:
   bigint-buffer: false
   keccak: false
   secp256k1: false
+  protobufjs: false

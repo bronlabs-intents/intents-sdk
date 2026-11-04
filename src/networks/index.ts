@@ -10,8 +10,9 @@ import { CosmosNetwork } from "./cosmos.js";
 import { XrpNetwork } from './xrp.js';
 import { HbarNetwork } from './hbar.js';
 import { TaoNetwork } from './tao.js';
+import { SuiNetwork } from './sui.js';
 
-export { BronCantonNetwork, BtcNetwork, CosmosNetwork, EvmNetwork, HbarNetwork, SolNetwork, TaoNetwork, TonNetwork, TrxNetwork, XrpNetwork };
+export { BronCantonNetwork, BtcNetwork, CosmosNetwork, EvmNetwork, HbarNetwork, SolNetwork, SuiNetwork, TaoNetwork, TonNetwork, TrxNetwork, XrpNetwork };
 
 export interface TransactionData {
   from: string;
@@ -71,6 +72,7 @@ const networkBuilders = {
   "MON": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 10),
   "AVAXC": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 2),
   "TAO": (cf: NetworkConfig) => new TaoNetwork(cf.rpcUrl),
+  "SUI": (cf: NetworkConfig) => new SuiNetwork(cf.rpcUrl),
 }
 
 export const initNetworks = (configs: { [key: string]: NetworkConfig }, filter?: (cfg: NetworkConfig) => boolean) =>

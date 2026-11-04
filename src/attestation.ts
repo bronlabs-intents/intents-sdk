@@ -1,5 +1,8 @@
 import { ethers } from 'ethers';
 import * as ed25519 from '@noble/ed25519';
+import { blake2AsU8a } from '@polkadot/util-crypto';
+import { bcs } from '@mysten/sui/bcs';
+import { messageWithIntent } from '@mysten/sui/cryptography';
 
 // Payer-signature binding: the controller of a leg's settlement-from address signs this
 // order-bound message with the key that controls that address. The oracle derives the signer's
@@ -329,7 +332,8 @@ export function verifyPayerSignatureEip712(
 //
 // Method 1 (payer-signature) is allowed on every network; method 2 (mint payer-signature) only on the
 // EVM + Solana networks that host consumer-token mints; method 3 (EIP-712 payer-signature) only on
-// the EVM networks with a pinned chainId, transfers only.
+// the EVM networks with a pinned chainId, transfers only; method 4 (Sui personal-message payer-signature,
+// ed25519 accounts only) only on SUI, transfers only.
 // ---------------------------------------------------------------------------
 
 export enum SettlementMethod {
@@ -337,6 +341,7 @@ export enum SettlementMethod {
   PayerSignature = 1,
   MintPayerSignature = 2,
   PayerSignatureEip712 = 3,
+  PayerSignatureSuiPersonalMessage = 4,
 }
 
 // A consumer-token mint has a zero token-level `from`, so the oracle resolves the settlement sender
@@ -347,6 +352,8 @@ const MINT_SETTLEMENT_NETWORKS = new Set<string>([
   'testETH', 'testOP', 'testSOL',
 ]);
 
+const SUI_PERSONAL_MESSAGE_NETWORKS = new Set<string>(['SUI']);
+
 export function allowedSettlementMethods(networkId: string): SettlementMethod[] {
   const methods: SettlementMethod[] = [SettlementMethod.PayerSignature];
 
@@ -356,6 +363,10 @@ export function allowedSettlementMethods(networkId: string): SettlementMethod[] 
 
   if (networkId in EIP712_SETTLEMENT_CHAIN_IDS) {
     methods.push(SettlementMethod.PayerSignatureEip712);
+  }
+
+  if (SUI_PERSONAL_MESSAGE_NETWORKS.has(networkId)) {
+    methods.push(SettlementMethod.PayerSignatureSuiPersonalMessage);
   }
 
   return methods;
@@ -371,6 +382,27 @@ export function encodePayerSignatureProof(publicKey: string, signature: string):
 export function decodePayerSignatureProof(proof: string): { publicKey: string; signature: string } {
   const [publicKey, signature] = ethers.AbiCoder.defaultAbiCoder().decode(PAYER_SIGNATURE_PROOF_TYPES, proof);
   return { publicKey, signature };
+}
+
+const SUI_ED25519_FLAG = 0x00;
+const SUI_ED25519_SERIALIZED_SIGNATURE_LENGTH = 97;
+
+export function suiPersonalMessageDigest(preimage: Uint8Array): Uint8Array {
+  return blake2AsU8a(messageWithIntent('PersonalMessage', bcs.byteVector().serialize(preimage).toBytes()), 256);
+}
+
+export function encodeSuiPersonalMessageProof(serializedSignature: string): string {
+  return ethers.hexlify(ethers.decodeBase64(serializedSignature));
+}
+
+export function decodeSuiPersonalMessageProof(proof: string): { publicKey: string; signature: string } | undefined {
+  const bytes = ethers.isHexString(proof) ? ethers.getBytes(proof) : undefined;
+
+  if (bytes?.length !== SUI_ED25519_SERIALIZED_SIGNATURE_LENGTH || bytes[0] !== SUI_ED25519_FLAG) {
+    return undefined;
+  }
+
+  return { signature: ethers.hexlify(bytes.slice(1, 65)), publicKey: ethers.hexlify(bytes.slice(65)) };
 }
 
 export interface SettlementProofInput {
@@ -439,6 +471,25 @@ export async function verifySettlementProof(
       const verified = verifyPayerSignatureEip712(input.proof, preimageParams, EIP712_SETTLEMENT_CHAIN_IDS[networkId], orderFrom);
 
       return { present: true, methodAllowed: true, valid: verified, sigBound: verified, sigValid: verified };
+    }
+
+    case SettlementMethod.PayerSignatureSuiPersonalMessage: {
+      if (input.mintContext?.logFromWasZero) {
+        return { present: true, methodAllowed: true, valid: false };
+      }
+
+      const decoded = decodeSuiPersonalMessageProof(input.proof);
+
+      if (!decoded) {
+        return { present: true, methodAllowed: true, valid: false };
+      }
+
+      const digest = suiPersonalMessageDigest(buildAttestationPreimage(preimageParams));
+
+      const sigBound = await attestationKeyMatchesAddress(network, decoded.publicKey, orderFrom);
+      const sigValid = await verifyEd25519(decoded.publicKey, decoded.signature, digest);
+
+      return { present: true, methodAllowed: true, valid: sigBound && sigValid, sigBound, sigValid };
     }
 
     default:
