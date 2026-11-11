@@ -1,6 +1,7 @@
 import { expect, test } from 'vitest';
 import { ethers } from 'ethers';
 import * as ed25519 from '@noble/ed25519';
+import { schnorr } from '@noble/curves/secp256k1.js';
 import * as bitcoin from 'bitcoinjs-lib';
 
 import {
@@ -232,6 +233,29 @@ test('btc: sigBound binds both mainnet and testnet encodings of the same key, re
   const otherPubkey = Buffer.from(ethers.getBytes(ethers.SigningKey.computePublicKey(otherKey, true)));
   const otherTestnetAddr = bitcoin.payments.p2wpkh({ pubkey: otherPubkey, network: bitcoin.networks.testnet }).address!;
   expect(await attestationKeyMatchesAddress(net, pub, otherTestnetAddr)).toBe(false);
+});
+
+test('btc forks: attestation is BIP340 over the raw preimage, ECDSA only where the fork has P2WPKH', () => {
+  const privateKey = '0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d';
+  const wallet = new ethers.Wallet(privateKey);
+  const pub = wallet.signingKey.publicKey;
+  const preimage = buildAttestationPreimage(params);
+
+  const taprootOnly = new BtcNetwork(RPC, 1, { bech32Prefix: 'prl', p2wpkh: false });
+  const withP2wpkh = new BtcNetwork(RPC, 1, { bech32Prefix: 'tc', p2wpkh: true });
+
+  const bip340 = ethers.hexlify(schnorr.sign(preimage, ethers.getBytes(privateKey)));
+  expect(taprootOnly.verifyAttestation(pub, bip340, preimage)).toBe(true);
+  expect(withP2wpkh.verifyAttestation(pub, bip340, preimage)).toBe(true);
+  expect(new BtcNetwork(RPC, 1).verifyAttestation(pub, bip340, preimage)).toBe(false);
+
+  expect(taprootOnly.verifyAttestation(pub, bip340, buildAttestationPreimage({ ...params, baseAmount: 7n }))).toBe(false);
+  expect(taprootOnly.verifyAttestation(new ethers.Wallet(ethers.id('btc-fork-other')).signingKey.publicKey, bip340, preimage)).toBe(false);
+  expect(taprootOnly.verifyAttestation(pub, ethers.concat(['0x02', bip340]), preimage)).toBe(false);
+
+  const ecdsa = wallet.signingKey.sign(secp256k1Digest(preimage)).serialized;
+  expect(taprootOnly.verifyAttestation(pub, ecdsa, preimage)).toBe(false);
+  expect(withP2wpkh.verifyAttestation(pub, ecdsa, preimage)).toBe(true);
 });
 
 test('btc forks: sigBound binds the untweaked P2TR and P2WPKH of the key under the fork prefix only', async () => {

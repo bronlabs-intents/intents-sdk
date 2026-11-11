@@ -4,7 +4,7 @@ import * as ecc from 'tiny-secp256k1';
 import { ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
-import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
+import { AttestationCapable, SignatureScheme, verifyBip340, verifySecp256k1 } from '../attestation.js';
 import { log, settlement, unpaid } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 import { randomUUID } from 'node:crypto';
@@ -66,7 +66,12 @@ export class BtcNetwork implements Network, AttestationCapable {
   }
 
   verifyAttestation(publicKey: string, signature: string, preimage: Uint8Array): boolean {
-    return verifySecp256k1(publicKey, signature, preimage);
+    if (!this.fork) {
+      return verifySecp256k1(publicKey, signature, preimage);
+    }
+
+    return verifyBip340(publicKey, signature, preimage)
+      || (this.fork.p2wpkh && verifySecp256k1(publicKey, signature, preimage));
   }
 
   matchesAddress(publicKey: string, address: string): boolean {

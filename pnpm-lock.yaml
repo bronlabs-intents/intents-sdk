@@ -24,6 +24,9 @@ importers:
       '@cosmjs/tendermint-rpc':
         specifier: ^0.37.0
         version: 0.37.0(bufferutil@4.0.9)(utf-8-validate@5.0.10)
+      '@noble/curves':
+        specifier: ^1.9.7
+        version: 1.9.7
       '@noble/ed25519':
         specifier: ^3.0.0
         version: 3.0.0
