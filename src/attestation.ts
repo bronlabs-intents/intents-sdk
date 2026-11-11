@@ -1,5 +1,6 @@
 import { ethers } from 'ethers';
 import * as ed25519 from '@noble/ed25519';
+import { schnorr } from '@noble/curves/secp256k1.js';
 
 // Payer-signature binding: the controller of a leg's settlement-from address signs this
 // order-bound message with the key that controls that address. The oracle derives the signer's
@@ -173,6 +174,21 @@ export function verifySecp256k1(publicKey: string, signature: string, preimage: 
   }
 
   return recoverSecp256k1PublicKeys(preimage, signature).includes(target);
+}
+
+export function verifyBip340(publicKey: string, signature: string, preimage: Uint8Array): boolean {
+  try {
+    const sig = ethers.getBytes(signature);
+    if (sig.length !== 64) {
+      return false;
+    }
+
+    const xOnlyPublicKey = ethers.getBytes(ethers.SigningKey.computePublicKey(publicKey, true)).slice(1);
+
+    return schnorr.verify(sig, preimage, xOnlyPublicKey);
+  } catch {
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------

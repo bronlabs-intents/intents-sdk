@@ -71,6 +71,8 @@ const networkBuilders = {
   "MON": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 10),
   "AVAXC": (cf: NetworkConfig) => new EvmNetwork(cf.rpcUrl, 2),
   "TAO": (cf: NetworkConfig) => new TaoNetwork(cf.rpcUrl),
+  "PRL": (cf: NetworkConfig) => new BtcNetwork(cf.rpcUrl, 10, { bech32Prefix: 'prl', p2wpkh: false }),
+  "TSC": (cf: NetworkConfig) => new BtcNetwork(cf.rpcUrl, 6, { bech32Prefix: 'tc', p2wpkh: true }),
 }
 
 export const initNetworks = (configs: { [key: string]: NetworkConfig }, filter?: (cfg: NetworkConfig) => boolean) =>

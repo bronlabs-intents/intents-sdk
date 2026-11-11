@@ -4,7 +4,7 @@ import * as ecc from 'tiny-secp256k1';
 import { ethers } from 'ethers';
 
 import { Network, TransactionData } from './index.js';
-import { AttestationCapable, SignatureScheme, verifySecp256k1 } from '../attestation.js';
+import { AttestationCapable, SignatureScheme, verifyBip340, verifySecp256k1 } from '../attestation.js';
 import { log, settlement, unpaid } from '../utils.js';
 import { proxyFetch } from '../proxy.js';
 import { randomUUID } from 'node:crypto';
@@ -44,25 +44,43 @@ const ECPair = ECPairFactory(ecc);
 export class BtcNetwork implements Network, AttestationCapable {
   private readonly rpcUrl: string;
   private readonly confirmations: number;
+  private readonly fork?: { bech32Prefix: string; p2wpkh: boolean };
   private readonly nativeAssetDecimals: number = 8;
   readonly retryDelay: number = 30000;
   readonly signatureScheme = SignatureScheme.Secp256k1;
 
-  constructor(rpcUrl: string, confirmations: number = 6) {
+  constructor(rpcUrl: string, confirmations: number = 6, fork?: { bech32Prefix: string; p2wpkh: boolean }) {
     this.rpcUrl = rpcUrl;
     this.confirmations = confirmations;
+    this.fork = fork;
   }
 
   addressFromPublicKey(publicKey: string): string {
-    return bitcoin.payments.p2wpkh({ pubkey: this.compressedPubkey(publicKey), network: bitcoin.networks.bitcoin }).address!;
+    const pubkey = this.compressedPubkey(publicKey);
+
+    if (this.fork) {
+      return bitcoin.address.toBech32(pubkey.subarray(1), 1, this.fork.bech32Prefix);
+    }
+
+    return bitcoin.payments.p2wpkh({ pubkey, network: bitcoin.networks.bitcoin }).address!;
   }
 
   verifyAttestation(publicKey: string, signature: string, preimage: Uint8Array): boolean {
-    return verifySecp256k1(publicKey, signature, preimage);
+    if (!this.fork) {
+      return verifySecp256k1(publicKey, signature, preimage);
+    }
+
+    return verifyBip340(publicKey, signature, preimage)
+      || (this.fork.p2wpkh && verifySecp256k1(publicKey, signature, preimage));
   }
 
   matchesAddress(publicKey: string, address: string): boolean {
     const pubkey = this.compressedPubkey(publicKey);
+
+    if (this.fork) {
+      return address === this.addressFromPublicKey(publicKey)
+        || (this.fork.p2wpkh && address === bitcoin.address.toBech32(bitcoin.crypto.hash160(pubkey), 0, this.fork.bech32Prefix));
+    }
 
     const candidates = [bitcoin.networks.bitcoin, bitcoin.networks.testnet].flatMap((net) => [
       bitcoin.payments.p2wpkh({ pubkey, network: net }).address,
@@ -94,7 +112,7 @@ export class BtcNetwork implements Network, AttestationCapable {
     }
 
     try {
-      const tx = await this.rpcCall('getrawtransaction', [txHash, true]) as BtcTransaction;
+      const tx = await this.rpcCall('getrawtransaction', [txHash, this.fork ? 1 : true]) as BtcTransaction;
       if (!tx) return;
 
       log.info(`Confirmations ${txHash}: ${tx.confirmations}`);
@@ -109,7 +127,7 @@ export class BtcNetwork implements Network, AttestationCapable {
       const prevTxs = new Map<string, BtcTransaction>();
 
       await Promise.all([...new Set(tx.vin.map(v => v.txid!))].map(async txid => {
-        prevTxs.set(txid, await this.rpcCall('getrawtransaction', [txid, true]) as BtcTransaction);
+        prevTxs.set(txid, await this.rpcCall('getrawtransaction', [txid, this.fork ? 1 : true]) as BtcTransaction);
       }));
 
       if (!tx.vin.every(vin => outputAddress(prevTxs.get(vin.txid!)!.vout[vin.vout!].scriptPubKey) === senderAddress)) {
@@ -131,6 +149,10 @@ export class BtcNetwork implements Network, AttestationCapable {
   async transfer(privateKey: string, to: string, value: bigint, tokenAddress: string): Promise<string> {
     if (tokenAddress !== "0x0") {
       throw new Error("Don't support tokens for BTC network");
+    }
+
+    if (this.fork) {
+      throw new Error("BtcNetwork forks do not support transfers");
     }
 
     const keyPair = ECPair.fromWIF(privateKey);
