@@ -234,6 +234,27 @@ test('btc: sigBound binds both mainnet and testnet encodings of the same key, re
   expect(await attestationKeyMatchesAddress(net, pub, otherTestnetAddr)).toBe(false);
 });
 
+test('btc forks: sigBound binds the untweaked P2TR and P2WPKH of the key under the fork prefix only', async () => {
+  const pub = new ethers.Wallet('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d').signingKey.publicKey;
+  const pubkey = Buffer.from(ethers.getBytes(ethers.SigningKey.computePublicKey(pub, true)));
+  const net = new BtcNetwork(RPC, 1, 'tc');
+
+  const taproot = bitcoin.address.toBech32(pubkey.subarray(1), 1, 'tc');
+  const segwit = bitcoin.address.toBech32(bitcoin.crypto.hash160(pubkey), 0, 'tc');
+  expect(net.addressFromPublicKey(pub)).toBe(taproot);
+  expect(taproot.startsWith('tc1p') && segwit.startsWith('tc1q'), 'fork prefixes').toBe(true);
+
+  expect(await attestationKeyMatchesAddress(net, pub, taproot)).toBe(true);
+  expect(await attestationKeyMatchesAddress(net, pub, segwit)).toBe(true);
+
+  expect(await attestationKeyMatchesAddress(net, pub, bitcoin.address.toBech32(pubkey.subarray(1), 1, 'prl'))).toBe(false);
+  expect(await attestationKeyMatchesAddress(net, pub, bitcoin.payments.p2wpkh({ pubkey, network: bitcoin.networks.bitcoin }).address!)).toBe(false);
+
+  const otherKey = new ethers.Wallet(ethers.id('btc-fork-other')).signingKey.publicKey;
+  const otherPubkey = Buffer.from(ethers.getBytes(ethers.SigningKey.computePublicKey(otherKey, true)));
+  expect(await attestationKeyMatchesAddress(net, pub, bitcoin.address.toBech32(otherPubkey.subarray(1), 1, 'tc'))).toBe(false);
+});
+
 test('payer-signature proof: abi.encode round-trip preserves publicKey + signature', () => {
   const wallet = new ethers.Wallet('0x59c6995e998f97a5a0044966f0945389dc9e86dae88c7a8412f4603b6b78690d');
   const sig = wallet.signingKey.sign(secp256k1Digest(buildAttestationPreimage(params))).serialized;
